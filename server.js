@@ -13,7 +13,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config(); // ✅ FIXED
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -21,36 +21,40 @@ const JWT_SECRET = process.env.JWT_SECRET || "secret123";
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
 
-// ===================
+// =====================
 // ✅ MongoDB
-// ===================
+// =====================
 mongoose.connect(process.env.MONGO_URI)
 .then(() => console.log("✅ MongoDB Connected"))
 .catch(err => console.log("❌ Mongo Error:", err.message));
 
-// ===================
+// =====================
 // ✅ Models
-// ===================
-const userSchema = new mongoose.Schema({
+// =====================
+const User = mongoose.model("User", new mongoose.Schema({
   username: { type: String, unique: true },
   password: String
-});
+}));
 
-const chatSchema = new mongoose.Schema({
+// 👉 Chat session (like sidebar)
+const ChatSession = mongoose.model("ChatSession", new mongoose.Schema({
   userId: mongoose.Schema.Types.ObjectId,
+  title: String,
+  createdAt: { type: Date, default: Date.now }
+}));
+
+// 👉 Messages
+const Message = mongoose.model("Message", new mongoose.Schema({
+  chatId: mongoose.Schema.Types.ObjectId,
   role: String,
   content: String,
   createdAt: { type: Date, default: Date.now }
-});
+}));
 
-const User = mongoose.model("User", userSchema);
-const Chat = mongoose.model("Chat", chatSchema);
-
-// ===================
-// ✅ Auth Middleware
-// ===================
+// =====================
+// ✅ Auth
+// =====================
 function auth(req, res, next) {
   try {
     const token = req.headers.authorization?.split(" ")[1];
@@ -63,25 +67,25 @@ function auth(req, res, next) {
   }
 }
 
-// ===================
-// ✅ File Upload
-// ===================
+// =====================
+// ✅ Upload
+// =====================
 const uploadDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
 const upload = multer({ dest: uploadDir });
 
-// ===================
-// ✅ AI Client
-// ===================
+// =====================
+// ✅ AI
+// =====================
 const client = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1"
 });
 
-// ===================
-// ✅ REGISTER
-// ===================
+// =====================
+// ✅ AUTH ROUTES
+// =====================
 app.post("/api/register", async (req, res) => {
   const { username, password } = req.body;
 
@@ -91,32 +95,61 @@ app.post("/api/register", async (req, res) => {
   res.json({ message: "Registered" });
 });
 
-// ===================
-// ✅ LOGIN
-// ===================
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
 
   const user = await User.findOne({ username });
-  if (!user) return res.status(400).json({ error: "No user" });
+  if (!user) return res.status(400).json({ error: "User not found" });
 
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.status(400).json({ error: "Wrong pass" });
+  const ok = await bcrypt.compare(password, user.password);
+  if (!ok) return res.status(400).json({ error: "Wrong password" });
 
   const token = jwt.sign({ id: user._id }, JWT_SECRET);
 
   res.json({ token });
 });
 
-// ===================
-// ✅ CHAT (MAIN)
-// ===================
-app.post("/api/chat", auth, upload.array("files"), async (req, res) => {
-  const userId = req.user.id;
+// =====================
+// ✅ CREATE CHAT
+// =====================
+app.post("/api/chat/new", auth, async (req, res) => {
+  const chat = await ChatSession.create({
+    userId: req.user.id,
+    title: "New Chat"
+  });
+
+  res.json(chat);
+});
+
+// =====================
+// ✅ GET ALL CHATS (sidebar)
+// =====================
+app.get("/api/chats", auth, async (req, res) => {
+  const chats = await ChatSession.find({ userId: req.user.id })
+    .sort({ createdAt: -1 });
+
+  res.json(chats);
+});
+
+// =====================
+// ✅ GET MESSAGES
+// =====================
+app.get("/api/chat/:id", auth, async (req, res) => {
+  const messages = await Message.find({ chatId: req.params.id })
+    .sort({ createdAt: 1 });
+
+  res.json(messages);
+});
+
+// =====================
+// ✅ MAIN CHAT
+// =====================
+app.post("/api/chat/:id", auth, upload.array("files"), async (req, res) => {
+  const chatId = req.params.id;
   const message = req.body.message;
 
-  // 🧠 Load history from DB
-  const history = await Chat.find({ userId })
+  // Load history
+  const history = await Message.find({ chatId })
     .sort({ createdAt: 1 })
     .limit(20);
 
@@ -125,9 +158,9 @@ app.post("/api/chat", auth, upload.array("files"), async (req, res) => {
       role: "system",
       content: "You are Student AI. Answer clearly."
     },
-    ...history.map(h => ({
-      role: h.role,
-      content: h.content
+    ...history.map(m => ({
+      role: m.role,
+      content: m.content
     })),
     {
       role: "user",
@@ -135,14 +168,14 @@ app.post("/api/chat", auth, upload.array("files"), async (req, res) => {
     }
   ];
 
-  // 📝 Save user msg
-  await Chat.create({
-    userId,
+  // Save user msg
+  await Message.create({
+    chatId,
     role: "user",
     content: message
   });
 
-  // 🚀 STREAM
+  // STREAM
   res.writeHead(200, {
     "Content-Type": "text/plain",
     "Transfer-Encoding": "chunked"
@@ -164,25 +197,22 @@ app.post("/api/chat", auth, upload.array("files"), async (req, res) => {
 
   res.end();
 
-  // 📝 Save AI reply
-  await Chat.create({
-    userId,
+  // Save AI reply
+  await Message.create({
+    chatId,
     role: "assistant",
     content: full
   });
+
+  // Auto title generate
+  const chat = await ChatSession.findById(chatId);
+  if (chat.title === "New Chat") {
+    chat.title = message.substring(0, 30);
+    await chat.save();
+  }
 });
 
-// ===================
-// ✅ GET HISTORY
-// ===================
-app.get("/api/history", auth, async (req, res) => {
-  const chats = await Chat.find({ userId: req.user.id })
-    .sort({ createdAt: 1 });
-
-  res.json(chats);
-});
-
-// ===================
+// =====================
 app.listen(PORT, () => {
   console.log(`🔥 http://localhost:${PORT}`);
 });
