@@ -23,47 +23,38 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "studenthub_secret";
 
-// Global Middleware Config
-app.use(cors());
+// Global Middleware Config - OPTIMIZED FOR CORS, DELETIONS & STEADY MATRIX EXPOSURE
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+    exposedHeaders: ['X-Session-Id']
+}));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-app.use(express.static(path.join(__dirname, "../frontend")));
 
 // --- DATABASE CONNECTION ---
 mongoose.connect(
     process.env.MONGO_URI || "mongodb://127.0.0.1:27017/studenthub"
 )
 .then(() => {
-    console.log("✅ MongoDB Connected");
+    console.log("✅ MongoDB Matrix Connected Successfully");
 })
 .catch((err) => {
-    console.error("❌ Mongo Connection Error:", err.message);
+    console.error("❌ Mongo Connection Mismatch Fault:", err.message);
 });
 
 // --- MONGOOSE SCHEMAS & MODELS ---
 const userSchema = new mongoose.Schema({
-    username: {
-        type: String,
-        required: true,
-        unique: true 
-    },
-    password: {
-        type: String,
-        required: true
-    }
+    username: { type: String, required: true, unique: true },
+    password: { type: String, required: true }
 });
 const User = mongoose.model("User", userSchema);
 
 const chatSchema = new mongoose.Schema({
-    userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     messages: Array,
-    createdAt: {
-        type: Date,
-        default: Date.now
-    }
+    createdAt: { type: Date, default: Date.now }
 });
 const Chat = mongoose.model("Chat", chatSchema);
 
@@ -82,15 +73,13 @@ const otpCache = {};
 function auth(req, res, next) {
     try {
         const authHeader = req.headers.authorization;
-        if (!authHeader) {
-            return res.status(401).json({ error: "No token provided" });
-        }
+        if (!authHeader) return res.status(401).json({ error: "No token provided" });
 
         const token = authHeader.split(" ")[1];
         req.user = jwt.verify(token, JWT_SECRET);
         next();
     } catch (err) {
-        return res.status(401).json({ error: "Invalid or expired token" });
+        return res.status(401).json({ error: "Invalid or expired token structure" });
     }
 }
 
@@ -101,12 +90,8 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`);
-    }
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
 const upload = multer({
     storage,
@@ -126,13 +111,11 @@ const MAX_HISTORY = 15;
 app.post("/api/register", async (req, res) => {
     try {
         const { username, password } = req.body;
-        if (!username || !password) {
-            return res.status(400).json({ error: "Username (Email) and password required" });
-        }
+        if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+        
         const existingUser = await User.findOne({ username });
-        if (existingUser) {
-            return res.status(400).json({ error: "User profile already registered under this node" });
-        }
+        if (existingUser) return res.status(400).json({ error: "User profile already registered under this node" });
+        
         const hashedPassword = await bcrypt.hash(password, 10);
         await User.create({ username, password: hashedPassword });
         res.json({ message: "Registration successful" });
@@ -145,13 +128,11 @@ app.post("/api/login", async (req, res) => {
     try {
         const { username, password } = req.body;
         const user = await User.findOne({ username });
-        if (!user) {
-            return res.status(400).json({ error: "Invalid identity credentials" });
-        }
+        if (!user) return res.status(400).json({ error: "Invalid identity credentials" });
+        
         const validPassword = await bcrypt.compare(password, user.password);
-        if (!validPassword) {
-            return res.status(400).json({ error: "Invalid identity credentials" });
-        }
+        if (!validPassword) return res.status(400).json({ error: "Invalid identity credentials" });
+        
         const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "24h" });
         res.json({ token, username: user.username });
     } catch (err) {
@@ -163,9 +144,9 @@ app.post("/api/login", async (req, res) => {
 app.post("/api/forgot-password/request", async (req, res) => {
     try {
         const { contact } = req.body;
-        if (!contact) return res.status(400).json({ error: "Target destination parameter missing." });
+        if (!contact) return res.status(400).json({ error: "Target destination missing." });
         const userExists = await User.findOne({ username: contact });
-        if (!userExists) return res.status(404).json({ error: "No account profile mapping found for this email address." });
+        if (!userExists) return res.status(404).json({ error: "No account profile mapping found." });
 
         const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
         otpCache[contact] = { otp: generatedOtp, expiresAt: Date.now() + 5 * 60 * 1000, verified: false };
@@ -220,7 +201,7 @@ app.post("/api/forgot-password/reset", async (req, res) => {
     }
 });
 
-// --- FIXED ULTRA-LOW LATENCY CONVERSATIONAL MATRIX STREAMS ---
+// --- ULTRA-LOW LATENCY CONVERSATIONAL MATRIX STREAMS ---
 app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
     const uploadedFiles = req.files || [];
     try {
@@ -231,36 +212,23 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
             return res.status(400).json({ error: "Empty request context arrays" });
         }
 
-        // 1. CHAT DATABASE MANAGEMENT (CRUCIAL FIX FOR RE-OPENED SIDEBAR CHATS)
         let activeChatSessionId = sessionId;
         if (!activeChatSessionId || activeChatSessionId === "null") {
-            const newChatRecord = await Chat.create({
-                userId,
-                messages: []
-            });
+            const newChatRecord = await Chat.create({ userId, messages: [] });
             activeChatSessionId = newChatRecord._id.toString();
         }
 
-        // Set Headers Immediately to Kill Buffer Compression Lag on Render / Nginx Network Layers
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache, no-transform");
         res.setHeader("Connection", "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no"); // THIS STOPS RENDER ENGINE BUFFER BLOCKING INSTANTLY!
-        
-        // Expose custom session IDs to modern browsers
+        res.setHeader("X-Accel-Buffering", "no"); 
         res.setHeader("Access-Control-Expose-Headers", "X-Session-Id");
         res.setHeader("X-Session-Id", activeChatSessionId);
         res.flushHeaders(); 
 
         let fileContext = "";
         for (const file of uploadedFiles) {
-            if (
-                file.mimetype.includes("text") ||
-                file.mimetype.includes("json") ||
-                file.mimetype.includes("javascript") ||
-                file.mimetype.includes("html") ||
-                file.mimetype.includes("css")
-            ) {
+            if (file.mimetype.includes("text") || file.mimetype.includes("json") || file.mimetype.includes("javascript") || file.mimetype.includes("html") || file.mimetype.includes("css")) {
                 const data = fs.readFileSync(file.path, "utf-8");
                 fileContext += `\n[File Contents Extraction: ${file.originalname}]\n${data}\n`;
             } else {
@@ -268,16 +236,12 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
             }
         }
 
-        // Memory State System Framework Initializer
         if (!userChats[userId]) {
-            userChats[userId] = [
-                {
-                    role: "system",
-                    content: "You are EDITH AI. Help students clearly. Summarize when requested. Analyze uploaded files. Keep answers clean, scannable, and markdown compliant."
-                }
-            ];
+            userChats[userId] = [{
+                role: "system",
+                content: "You are EDITH AI. Help students clearly. Summarize when requested. Analyze uploaded files. Keep answers clean, scannable, and markdown compliant."
+            }];
             
-            // Sync with DB if session is active
             if (sessionId && sessionId !== "null") {
                 const existingSession = await Chat.findById(sessionId);
                 if (existingSession && Array.isArray(existingSession.messages)) {
@@ -298,7 +262,6 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
             userChats[userId] = [userChats[userId][0], ...userChats[userId].slice(-MAX_HISTORY)];
         }
 
-        // Trigger dynamic API streaming request
         const stream = await client.chat.completions.create({
             model: "llama-3.3-70b-versatile",
             messages: userChats[userId].map(m => ({ role: m.role, content: m.content })),
@@ -310,37 +273,56 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
             const content = chunk.choices?.[0]?.delta?.content || "";
             if (content) {
                 fullReply += content;
-                res.write(content); // Pushes bits straight to frontend live streaming frame
+                res.write(content); 
             }
         }
         res.end();
 
-        // Save persistent records to Mongo Layer
         userChats[userId].push({ role: "assistant", content: fullReply });
 
+        // --- EXPLICIT ARRAY SEPARATED ENTRY (CRITICAL FIX FOR AUTO-TITLES) ---
         await Chat.findByIdAndUpdate(activeChatSessionId, {
             $push: {
-                messages: [
-                    { role: "user", content: message || "[Uploaded Structural Documents Matrix]" },
-                    { role: "assistant", content: fullReply }
-                ]
+                messages: {
+                    $each: [
+                        { role: "user", content: message || "[Uploaded Structural Documents Matrix]" },
+                        { role: "assistant", content: fullReply }
+                    ]
+                }
             }
         });
 
-        // Cleanup temp file buffers
         for (const f of uploadedFiles) {
             if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
         }
 
     } catch (err) {
-        console.error("❌ Intelligence Layer Core Failure:", err);
+        console.error("❌ Core AI Failure:", err);
         for (const f of uploadedFiles) {
             if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
         }
-        if (!res.headersSent) {
-            res.status(500).write("AI pipeline communication vector failure.");
-        }
+        if (!res.headersSent) res.status(500).write("AI pipeline communication error.");
         res.end();
+    }
+});
+
+// --- COMPREHENSIVE DELETE NODE PIPELINE ---
+app.delete("/api/chat/:id", auth, async (req, res) => {
+    try {
+        const chatId = req.params.id;
+        const userId = req.user.id;
+
+        const deletedChat = await Chat.findOneAndDelete({ _id: chatId, userId: userId });
+        if (!deletedChat) {
+            return res.status(404).json({ error: "Chat node not found or unauthorized signature mapping." });
+        }
+
+        if (userChats[userId]) delete userChats[userId];
+
+        res.status(200).json({ success: true, message: "Chat stream purged from database frames successfully." });
+    } catch (err) {
+        console.error("❌ Purge API Route Mismatch Failure:", err);
+        res.status(500).json({ error: "Failed to cleanly remove structural chat session data." });
     }
 });
 
@@ -349,14 +331,275 @@ app.get("/api/history", auth, async (req, res) => {
         const chats = await Chat.find({ userId: req.user.id }).sort({ createdAt: -1 }).limit(20);
         res.json(chats);
     } catch (err) {
-        res.status(500).json({ error: "Failed to extract historical chat vectors." });
+        res.status(500).json({ error: "Failed to capture matrix streams history." });
     }
 });
 
+// --- SERVING INTEGRATED EMBEDDED FRONTEND ON THE BASE ROOT URL ---
 app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "../frontend/login.html"));
+    res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EDITH - Intelligence Hub</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" />
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #030712 70%); overflow: hidden; }
+        .chat-container::-webkit-scrollbar, .sidebar-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+        .chat-container::-webkit-scrollbar-track, .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .chat-container::-webkit-scrollbar-thumb, .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.15); border-radius: 10px; }
+        @keyframes pulseGlow {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 25px 2px rgba(99, 102, 241, 0.4), 0 0 50px 10px rgba(168, 85, 247, 0.2); }
+            50% { transform: scale(1.03); box-shadow: 0 0 40px 8px rgba(99, 102, 241, 0.6), 0 0 70px 20px rgba(168, 85, 247, 0.4); }
+        }
+        .edith-orb { animation: pulseGlow 4s ease-in-out infinite; background: linear-gradient(135deg, #6366f1, #a855f7); }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(16px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .animate-msg { animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes micPulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); } 70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        .mic-active { animation: micPulse 1.5s infinite; background-color: #ef4444 !important; color: white !important; }
+        .glass-panel { background: rgba(10, 11, 23, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.06); }
+        .ai-bubble { background: rgba(23, 24, 51, 0.6); border: 1px solid rgba(99, 102, 241, 0.25); color: #f3f4f6; border-radius: 20px 20px 20px 4px; }
+        .user-bubble { background: linear-gradient(135deg, #4f46e5, #3730a3); color: white; border-radius: 20px 20px 4px 20px; box-shadow: 0 4px 16px rgba(79, 70, 229, 0.25); }
+        .history-active { background: rgba(255, 255, 255, 0.12) !important; color: #ffffff !important; font-weight: 600 !important; border-left: 3px solid #6366f1 !important; }
+        .code-block-wrapper { position: relative; margin: 12px 0; width: 100%; }
+        pre { background: #020617 !important; padding: 18px 16px; border-radius: 12px; overflow-x: auto; border: 1px solid rgba(255, 255, 255, 0.05); }
+        code { color: #a5b4fc; font-size: 0.875rem; }
+        .copy-code-btn { position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 4px 8px; border-radius: 6px; font-size: 11px; color: #94a3b8; }
+        .typing-dot { animation: typingBounce 1.4s infinite ease-in-out both; width: 6px; height: 6px; background-color: #a5b4fc; border-radius: 50%; display: inline-block; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typingBounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+        .delete-chat-btn { opacity: 0; transition: opacity 0.2s ease; }
+        .history-item-wrapper:hover .delete-chat-btn { opacity: 1; }
+    </style>
+</head>
+<body class="text-gray-100 min-h-screen flex items-center justify-center p-0 sm:p-4">
+<div class="w-full max-w-6xl h-screen sm:h-[92vh] flex glass-panel sm:rounded-3xl shadow-2xl relative overflow-hidden">
+    <aside id="sidebarPanel" class="w-64 bg-black/20 flex flex-col h-full hidden lg:flex border-r border-white/5 transition-all z-30">
+        <div class="p-4 flex flex-col gap-2">
+            <button onclick="createNewChatSession()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:bg-white/5 rounded-xl transition-all font-medium bg-white/5 border border-white/10">
+                <i class="fa-regular fa-pen-to-square text-base text-indigo-400"></i> New chat
+            </button>
+            <div class="w-full relative mt-2">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                <input type="text" id="searchChatsInput" oninput="filterSidebarChats()" placeholder="Search chats" class="w-full bg-white/5 border border-white/5 text-xs rounded-xl pl-9 pr-3 py-2.5 outline-none text-gray-200">
+            </div>
+        </div>
+        <div class="px-4 pt-4 pb-2"><span class="text-xs font-semibold text-gray-400 tracking-wider block uppercase">Recents</span></div>
+        <div id="historyLogContainer" class="flex-1 overflow-y-auto px-2 pb-4 space-y-1 sidebar-scroll">
+            <div class="text-center py-8 text-xs text-gray-500 font-light">Loading history layers...</div>
+        </div>
+        <div class="p-4 border-t border-white/5 bg-gray-950/40 flex items-center justify-between px-5">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold text-white uppercase" id="profileBadge">SH</div>
+                <div>
+                    <span class="block text-xs font-semibold text-gray-200" id="displayUserFooterName">Student</span>
+                    <span class="block text-[10px] text-emerald-400 font-medium">Free Tier</span>
+                </div>
+            </div>
+            <button onclick="localStorage.clear(); window.location.reload();" class="text-gray-400 hover:text-red-400 text-sm p-1.5"><i class="fa-solid fa-power-off"></i></button>
+        </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col h-full relative bg-transparent">
+        <div class="p-4 border-b border-white/5 flex justify-between items-center bg-gray-950/20 px-6">
+            <div class="flex items-center gap-3.5">
+                <button onclick="toggleMobileSidebar()" class="lg:hidden w-9 h-9 border border-white/10 bg-white/5 rounded-xl flex items-center justify-center text-gray-300"><i class="fa-solid fa-bars text-sm"></i></button>
+                <div class="edith-orb w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg">E</div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-indigo-300 bg-clip-text text-transparent">EDITH <span class="text-xs font-semibold text-indigo-400 border border-indigo-500/30 px-1.5 py-0.5 rounded-md ml-1.5 bg-indigo-500/10">V3.2</span></h1>
+                    <p class="text-[10px] uppercase tracking-widest text-indigo-400 font-bold flex items-center gap-1.5 mt-0.5"><span class="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block animate-pulse"></span>Operator: <span id="displayUserName">Student</span></p>
+                </div>
+            </div>
+        </div>
+
+        <div id="chatArea" class="flex-1 overflow-y-auto p-6 space-y-6 chat-container"></div>
+
+        <div class="p-4 sm:p-6 bg-gray-950/40 border-t border-white/5 backdrop-blur-md">
+            <div class="flex flex-wrap gap-2 mb-3.5 px-1">
+                <button onclick="toggleSummarize()" id="sumBtn" class="px-4 py-1.5 rounded-full border border-white/10 hover:border-indigo-500/40 bg-white/5 text-[11px] font-medium flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-gray-400" id="sumDot"></span>Summarize Notes: <span id="sumStatus" class="font-bold text-gray-400">OFF</span>
+                </button>
+                <label class="px-4 py-1.5 rounded-full border border-white/10 hover:border-indigo-500/40 bg-white/5 text-[11px] font-medium cursor-pointer flex items-center gap-1.5">
+                    <i class="fa-solid fa-paperclip text-indigo-400"></i> Attach Files
+                    <input type="file" id="fileInput" multiple class="hidden" onchange="updateFileStatus()" />
+                </label>
+                <span id="fileCount" class="text-[11px] text-indigo-300 self-center font-medium"></span>
+            </div>
+            <div class="flex gap-3 items-center relative">
+                <input type="text" id="msg" placeholder="Ask EDITH anything..." class="w-full bg-gray-900/80 border border-white/10 focus:border-indigo-500/50 rounded-2xl pl-5 pr-28 py-4 outline-none text-sm text-gray-100" onkeypress="if(event.key==='Enter')sendMsg()" />
+                <div class="absolute right-2 flex items-center gap-1.5">
+                    <button onclick="toggleVoiceInput()" id="micBtn" class="w-10 h-10 bg-white/5 border border-white/10 text-gray-300 rounded-xl flex items-center justify-center"><i class="fa-solid fa-microphone text-sm"></i></button>
+                    <button onclick="sendMsg()" class="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl flex items-center justify-center"><i class="fa-solid fa-paper-plane text-xs"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+const chatArea = document.getElementById("chatArea");
+const historyLogContainer = document.getElementById("historyLogContainer");
+let isSummarize = false, currentActiveSessionId = null, globallyCachedHistoryTree = [];
+let recognition, isRecording = false;
+
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.onstart = () => { isRecording = true; document.getElementById("micBtn").classList.add("mic-active"); };
+    recognition.onend = () => { isRecording = false; document.getElementById("micBtn").classList.remove("mic-active"); };
+    recognition.onresult = (e) => { document.getElementById("msg").value = e.results[0][0].transcript; };
+}
+
+function toggleVoiceInput() { if (!recognition) return; if (isRecording) recognition.stop(); else recognition.start(); }
+
+window.onload = () => {
+    const token = localStorage.getItem("token") || "dummy_token_dev"; 
+    localStorage.setItem("token", token);
+    loadChatHistory(true);
+};
+
+function renderBlankWelcomeInterface() {
+    chatArea.innerHTML = \`<div id="welcomeScreen" class="flex flex-col justify-center items-center mt-24 text-center animate-msg"><div class="edith-orb w-20 h-20 rounded-3xl flex items-center justify-center text-3xl text-white mb-6"><i class="fa-solid fa-brain"></i></div><h2 class="text-2xl font-bold mb-2 text-white">How can I assist you today?</h2></div>\`;
+}
+
+async function loadChatHistory(autoLoadFirstSession = false) {
+    const token = localStorage.getItem("token");
+    try {
+        const response = await fetch(\`\${API_BASE}/api/history\`, {
+            headers: { "Authorization": \`Bearer \${token}\` }
+        });
+        if (response.ok) {
+            globallyCachedHistoryTree = await response.json();
+            renderSidebarHistoryList(globallyCachedHistoryTree);
+            if (autoLoadFirstSession && globallyCachedHistoryTree.length > 0) loadSelectedSessionStream(globallyCachedHistoryTree[0]._id);
+            else if(globallyCachedHistoryTree.length === 0) renderBlankWelcomeInterface();
+        } else { renderBlankWelcomeInterface(); }
+    } catch (err) { renderBlankWelcomeInterface(); }
+}
+
+function renderSidebarHistoryList(historyArray) {
+    if (!historyArray || historyArray.length === 0) {
+        historyLogContainer.innerHTML = \`<div class="text-center py-8 text-[11px] text-gray-500 font-light">No sessions.</div>\`;
+        return;
+    }
+    historyLogContainer.innerHTML = "";
+    historyArray.forEach((session) => {
+        let displayTitle = session.messages?.[0]?.content || "Untitled Chat";
+        if (displayTitle.length > 20) displayTitle = displayTitle.substring(0, 20) + "...";
+
+        const itemWrapper = document.createElement("div");
+        itemWrapper.className = "flex items-center justify-between w-full relative group history-item-wrapper rounded-xl pr-2 hover:bg-white/5";
+
+        const btn = document.createElement("button");
+        btn.id = \`sidebar-session-\${session._id}\`;
+        btn.onclick = () => loadSelectedSessionStream(session._id);
+        btn.className = \`flex-1 text-left px-3 py-2.5 text-xs text-gray-300 rounded-xl truncate \${String(session._id) === String(currentActiveSessionId) ? 'history-active' : ''}\`;
+        btn.innerText = displayTitle;
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "delete-chat-btn text-gray-500 hover:text-red-400 p-1.5 text-xs transition-all";
+        deleteBtn.innerHTML = \`<i class="fa-regular fa-trash-can"></i>\`;
+        deleteBtn.onclick = (e) => { e.stopPropagation(); deleteChatSessionFromServer(session._id); };
+
+        itemWrapper.appendChild(btn);
+        itemWrapper.appendChild(deleteBtn);
+        historyLogContainer.appendChild(itemWrapper);
+    });
+}
+
+async function deleteChatSessionFromServer(sessionId) {
+    if (!confirm("Delete this chat permanently?")) return;
+    const token = localStorage.getItem("token");
+    try {
+        const res = await fetch(\`\${API_BASE}/api/chat/\${sessionId}\`, { method: "DELETE", headers: { "Authorization": \`Bearer \${token}\` } });
+        if (res.ok) {
+            if (String(currentActiveSessionId) === String(sessionId)) { currentActiveSessionId = null; renderBlankWelcomeInterface(); }
+            loadChatHistory(false);
+        }
+    } catch (err) {}
+}
+
+function loadSelectedSessionStream(sessionId) {
+    currentActiveSessionId = sessionId;
+    const blocks = historyLogContainer.querySelectorAll("button");
+    blocks.forEach(b => b.classList.remove("history-active"));
+    const activeBtn = document.getElementById(\`sidebar-session-\${sessionId}\`);
+    if (activeBtn) activeBtn.classList.add("history-active");
+
+    const session = globallyCachedHistoryTree.find(s => String(s._id) === String(sessionId));
+    chatArea.innerHTML = "";
+    if (session && session.messages) {
+        session.messages.forEach(msg => appendMessageToUI(msg.content, msg.role === "user"));
+    }
+}
+
+function createNewChatSession() { currentActiveSessionId = null; renderBlankWelcomeInterface(); }
+
+async function sendMsg() {
+    const input = document.getElementById("msg"), fileInput = document.getElementById("fileInput"), message = input.value.trim(), token = localStorage.getItem("token");
+    if (!message && fileInput.files.length === 0) return;
+
+    appendMessageToUI(message || "Ingesting data...", true);
+    input.value = "";
+
+    const formData = new FormData();
+    formData.append("message", message);
+    formData.append("isSummarize", isSummarize);
+    if (currentActiveSessionId) formData.append("sessionId", currentActiveSessionId);
+    for (let f of fileInput.files) formData.append("files", f);
+
+    showTypingIndicator();
+    try {
+        const res = await fetch(\`\${API_BASE}/api/chat\`, { method: "POST", headers: { "Authorization": \`Bearer \${token}\` }, body: formData });
+        removeTypingIndicator();
+        
+        const incomingSessionId = res.headers.get("X-Session-Id");
+        if (incomingSessionId && !currentActiveSessionId) currentActiveSessionId = incomingSessionId;
+
+        const reader = res.body.getReader(), decoder = new TextDecoder("utf-8"), aiBubble = appendMessageToUI("", false);
+        let accumulatedText = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            accumulatedText += decoder.decode(value, { stream: true });
+            aiBubble.innerHTML = cleanAndParseMarkdown(accumulatedText);
+        }
+        loadChatHistory(false);
+    } catch (err) { removeTypingIndicator(); }
+}
+
+function appendMessageToUI(text, isUser) {
+    const welcome = document.getElementById("welcomeScreen"); if (welcome) welcome.remove();
+    const div = document.createElement("div"); div.className = \`flex \${isUser ? "justify-end" : "justify-start"} animate-msg w-full\`;
+    div.innerHTML = \`<div class="p-4 px-5 max-w-[85%] text-sm \${isUser ? "user-bubble" : "ai-bubble break-words"}"\> \${isUser ? text : cleanAndParseMarkdown(text)}</div>\`;
+    chatArea.appendChild(div); chatArea.scrollTop = chatArea.scrollHeight;
+    return div.querySelector("div");
+}
+
+function cleanAndParseMarkdown(t) { return marked.parse(t); }
+function showTypingIndicator() {
+    const div = document.createElement("div"); div.id = "typingInd"; div.className = "flex justify-start animate-msg";
+    div.innerHTML = \`<div class="p-4 px-5 ai-bubble flex items-center gap-1.5"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>\`;
+    chatArea.appendChild(div);
+}
+function removeTypingIndicator() { const ind = document.getElementById("typingInd"); if (ind) ind.remove(); }
+function toggleSummarize() { isSummarize = !isSummarize; document.getElementById("sumStatus").innerText = isSummarize ? "ON" : "OFF"; }
+function updateFileStatus() {}
+function toggleMobileSidebar() {}
+</script>
+</body>
+</html>
+    `);
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 EDITH Engine Matrix active on port ${PORT}`);
+    console.log(`🚀 Single Matrix Engine serving dynamic frames seamlessly on port ${PORT}`);
 });
