@@ -23,7 +23,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "studenthub_secret";
 
-// Global Middleware Config - OPTIMIZED FOR CORS, DELETIONS & STEADY MATRIX EXPOSURE
+// Global Middleware Config
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -38,10 +38,10 @@ mongoose.connect(
     process.env.MONGO_URI || "mongodb://127.0.0.1:27017/studenthub"
 )
 .then(() => {
-    console.log("✅ MongoDB Matrix Connected Successfully");
+    console.log("✅ MongoDB Connected Successfully");
 })
 .catch((err) => {
-    console.error("❌ Mongo Connection Mismatch Fault:", err.message);
+    console.error("❌ Mongo Connection Error:", err.message);
 });
 
 // --- MONGOOSE SCHEMAS & MODELS ---
@@ -280,7 +280,7 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
 
         userChats[userId].push({ role: "assistant", content: fullReply });
 
-        // --- EXPLICIT ARRAY SEPARATED ENTRY (CRITICAL FIX FOR AUTO-TITLES) ---
+        // EXPLICIT SEPARATED ARRAY PUSH (Auto Title Generator perfect ga fetch cheskoniki)
         await Chat.findByIdAndUpdate(activeChatSessionId, {
             $push: {
                 messages: {
@@ -306,7 +306,7 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
     }
 });
 
-// --- COMPREHENSIVE DELETE NODE PIPELINE ---
+// --- SYSTEM HARD DELETE ROUTE PIPELINE ---
 app.delete("/api/chat/:id", auth, async (req, res) => {
     try {
         const chatId = req.params.id;
@@ -335,7 +335,7 @@ app.get("/api/history", auth, async (req, res) => {
     }
 });
 
-// --- SERVING INTEGRATED EMBEDDED FRONTEND ON THE BASE ROOT URL ---
+// --- INTEGRATED COMPACT EMBEDDED FRONTEND GLASSMORPHISM LAYOUT ---
 app.get("/", (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -348,7 +348,7 @@ app.get("/", (req, res) => {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" />
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #030712 70%); overflow: hidden; }
         .chat-container::-webkit-scrollbar, .sidebar-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
         .chat-container::-webkit-scrollbar-track, .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -374,7 +374,7 @@ app.get("/", (req, res) => {
         .typing-dot:nth-child(2) { animation-delay: 0.2s; }
         .typing-dot:nth-child(3) { animation-delay: 0.4s; }
         @keyframes typingBounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
-        .delete-chat-btn { opacity: 0; transition: opacity 0.2s ease; }
+        .delete-chat-btn { opacity: 0; transition: opacity 0.2s ease; cursor: pointer; }
         .history-item-wrapper:hover .delete-chat-btn { opacity: 1; }
     </style>
 </head>
@@ -399,7 +399,7 @@ app.get("/", (req, res) => {
                 <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold text-white uppercase" id="profileBadge">SH</div>
                 <div>
                     <span class="block text-xs font-semibold text-gray-200" id="displayUserFooterName">Student</span>
-                    <span class="block text-[10px] text-emerald-400 font-medium">Free Tier</span>
+                    <span class="block text-[10px] text-emerald-400 font-medium">Active Layer</span>
                 </div>
             </div>
             <button onclick="localStorage.clear(); window.location.reload();" class="text-gray-400 hover:text-red-400 text-sm p-1.5"><i class="fa-solid fa-power-off"></i></button>
@@ -413,7 +413,7 @@ app.get("/", (req, res) => {
                 <div class="edith-orb w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg">E</div>
                 <div>
                     <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-indigo-300 bg-clip-text text-transparent">EDITH <span class="text-xs font-semibold text-indigo-400 border border-indigo-500/30 px-1.5 py-0.5 rounded-md ml-1.5 bg-indigo-500/10">V3.2</span></h1>
-                    <p class="text-[10px] uppercase tracking-widest text-indigo-400 font-bold flex items-center gap-1.5 mt-0.5"><span class="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block animate-pulse"></span>Operator: <span id="displayUserName">Student</span></p>
+                    <p class="text-[10px] uppercase tracking-widest text-indigo-400 font-bold flex items-center gap-1.5 mt-0.5"><span class="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block animate-pulse"></span>System Status: <span id="displayUserName">Online</span></p>
                 </div>
             </div>
         </div>
@@ -486,12 +486,15 @@ async function loadChatHistory(autoLoadFirstSession = false) {
 
 function renderSidebarHistoryList(historyArray) {
     if (!historyArray || historyArray.length === 0) {
-        historyLogContainer.innerHTML = \`<div class="text-center py-8 text-[11px] text-gray-500 font-light">No sessions.</div>\`;
+        historyLogContainer.innerHTML = \`<div class="text-center py-8 text-[11px] text-gray-500 font-light">No sessions found.</div>\`;
         return;
     }
     historyLogContainer.innerHTML = "";
     historyArray.forEach((session) => {
-        let displayTitle = session.messages?.[0]?.content || "Untitled Chat";
+        let displayTitle = "Untitled Chat";
+        if (session.messages && session.messages.length > 0 && session.messages[0]) {
+            displayTitle = session.messages[0].content || "Empty Layer";
+        }
         if (displayTitle.length > 20) displayTitle = displayTitle.substring(0, 20) + "...";
 
         const itemWrapper = document.createElement("div");
@@ -515,7 +518,7 @@ function renderSidebarHistoryList(historyArray) {
 }
 
 async function deleteChatSessionFromServer(sessionId) {
-    if (!confirm("Delete this chat permanently?")) return;
+    if (!confirm("Delete this chat permanently from database tables?")) return;
     const token = localStorage.getItem("token");
     try {
         const res = await fetch(\`\${API_BASE}/api/chat/\${sessionId}\`, { method: "DELETE", headers: { "Authorization": \`Bearer \${token}\` } });
@@ -546,7 +549,7 @@ async function sendMsg() {
     const input = document.getElementById("msg"), fileInput = document.getElementById("fileInput"), message = input.value.trim(), token = localStorage.getItem("token");
     if (!message && fileInput.files.length === 0) return;
 
-    appendMessageToUI(message || "Ingesting data...", true);
+    appendMessageToUI(message || "Ingesting context data...", true);
     input.value = "";
 
     const formData = new FormData();
@@ -601,5 +604,5 @@ function toggleMobileSidebar() {}
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Single Matrix Engine serving dynamic frames seamlessly on port ${PORT}`);
+    console.log(`🚀 Single Matrix Engine active on port ${PORT}`);
 });
