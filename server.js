@@ -280,7 +280,6 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
 
         userChats[userId].push({ role: "assistant", content: fullReply });
 
-        // EXPLICIT SEPARATED ARRAY PUSH (Auto Title Generator perfect ga fetch cheskoniki)
         await Chat.findByIdAndUpdate(activeChatSessionId, {
             $push: {
                 messages: {
@@ -319,7 +318,7 @@ app.delete("/api/chat/:id", auth, async (req, res) => {
 
         if (userChats[userId]) delete userChats[userId];
 
-        res.status(200).json({ success: true, message: "Chat stream purged from database frames successfully." });
+        res.status(200).json({ success: true, message: "Chat stream purged successfully." });
     } catch (err) {
         console.error("❌ Purge API Route Mismatch Failure:", err);
         res.status(500).json({ error: "Failed to cleanly remove structural chat session data." });
@@ -346,6 +345,7 @@ app.get("/", (req, res) => {
     <title>EDITH - Intelligence Hub</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" />
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700&display=swap');
@@ -363,19 +363,20 @@ app.get("/", (req, res) => {
         @keyframes micPulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); } 70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
         .mic-active { animation: micPulse 1.5s infinite; background-color: #ef4444 !important; color: white !important; }
         .glass-panel { background: rgba(10, 11, 23, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.06); }
-        .ai-bubble { background: rgba(23, 24, 51, 0.6); border: 1px solid rgba(99, 102, 241, 0.25); color: #f3f4f6; border-radius: 20px 20px 20px 4px; }
+        .ai-bubble { background: rgba(23, 24, 51, 0.6); border: 1px solid rgba(99, 102, 241, 0.25); color: #f3f4f6; border-radius: 20px 20px 20px 4px; position: relative; }
         .user-bubble { background: linear-gradient(135deg, #4f46e5, #3730a3); color: white; border-radius: 20px 20px 4px 20px; box-shadow: 0 4px 16px rgba(79, 70, 229, 0.25); }
         .history-active { background: rgba(255, 255, 255, 0.12) !important; color: #ffffff !important; font-weight: 600 !important; border-left: 3px solid #6366f1 !important; }
         .code-block-wrapper { position: relative; margin: 12px 0; width: 100%; }
         pre { background: #020617 !important; padding: 18px 16px; border-radius: 12px; overflow-x: auto; border: 1px solid rgba(255, 255, 255, 0.05); }
         code { color: #a5b4fc; font-size: 0.875rem; }
-        .copy-code-btn { position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 4px 8px; border-radius: 6px; font-size: 11px; color: #94a3b8; }
         .typing-dot { animation: typingBounce 1.4s infinite ease-in-out both; width: 6px; height: 6px; background-color: #a5b4fc; border-radius: 50%; display: inline-block; }
         .typing-dot:nth-child(2) { animation-delay: 0.2s; }
         .typing-dot:nth-child(3) { animation-delay: 0.4s; }
         @keyframes typingBounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
         .delete-chat-btn { opacity: 0; transition: opacity 0.2s ease; cursor: pointer; }
         .history-item-wrapper:hover .delete-chat-btn { opacity: 1; }
+        .download-pdf-trigger { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.4); font-size: 11px; font-weight: 600; border-radius: 8px; color: #a5b4fc; transition: all 0.2s; cursor: pointer; }
+        .download-pdf-trigger:hover { background: #4f46e5; color: white; }
     </style>
 </head>
 <body class="text-gray-100 min-h-screen flex items-center justify-center p-0 sm:p-4">
@@ -385,10 +386,6 @@ app.get("/", (req, res) => {
             <button onclick="createNewChatSession()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:bg-white/5 rounded-xl transition-all font-medium bg-white/5 border border-white/10">
                 <i class="fa-regular fa-pen-to-square text-base text-indigo-400"></i> New chat
             </button>
-            <div class="w-full relative mt-2">
-                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
-                <input type="text" id="searchChatsInput" oninput="filterSidebarChats()" placeholder="Search chats" class="w-full bg-white/5 border border-white/5 text-xs rounded-xl pl-9 pr-3 py-2.5 outline-none text-gray-200">
-            </div>
         </div>
         <div class="px-4 pt-4 pb-2"><span class="text-xs font-semibold text-gray-400 tracking-wider block uppercase">Recents</span></div>
         <div id="historyLogContainer" class="flex-1 overflow-y-auto px-2 pb-4 space-y-1 sidebar-scroll">
@@ -398,7 +395,7 @@ app.get("/", (req, res) => {
             <div class="flex items-center gap-3">
                 <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold text-white uppercase" id="profileBadge">SH</div>
                 <div>
-                    <span class="block text-xs font-semibold text-gray-200" id="displayUserFooterName">Student</span>
+                    <span class="block text-xs font-semibold text-gray-200">Student</span>
                     <span class="block text-[10px] text-emerald-400 font-medium">Active Layer</span>
                 </div>
             </div>
@@ -409,7 +406,6 @@ app.get("/", (req, res) => {
     <div class="flex-1 flex flex-col h-full relative bg-transparent">
         <div class="p-4 border-b border-white/5 flex justify-between items-center bg-gray-950/20 px-6">
             <div class="flex items-center gap-3.5">
-                <button onclick="toggleMobileSidebar()" class="lg:hidden w-9 h-9 border border-white/10 bg-white/5 rounded-xl flex items-center justify-center text-gray-300"><i class="fa-solid fa-bars text-sm"></i></button>
                 <div class="edith-orb w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg">E</div>
                 <div>
                     <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-indigo-300 bg-clip-text text-transparent">EDITH <span class="text-xs font-semibold text-indigo-400 border border-indigo-500/30 px-1.5 py-0.5 rounded-md ml-1.5 bg-indigo-500/10">V3.2</span></h1>
@@ -575,8 +571,42 @@ async function sendMsg() {
             accumulatedText += decoder.decode(value, { stream: true });
             aiBubble.innerHTML = cleanAndParseMarkdown(accumulatedText);
         }
+        
+        // Response content generation complete aiyyaka automatic download action inject avthundi
+        injectDownloadActionTrigger(aiBubble);
         loadChatHistory(false);
     } catch (err) { removeTypingIndicator(); }
+}
+
+function injectDownloadActionTrigger(containerElement) {
+    const rawText = containerElement.innerText;
+    if (rawText.length < 30) return; // Ignore very small response snippets
+    
+    const btn = document.createElement("button");
+    btn.className = "download-pdf-trigger";
+    btn.innerHTML = \`<i class="fa-solid fa-file-pdf"></i> Download Notes PDF\`;
+    btn.onclick = () => {
+        const workingFrame = document.createElement("div");
+        workingFrame.style.padding = "30px";
+        workingFrame.style.color = "#000000";
+        workingFrame.style.background = "#ffffff";
+        workingFrame.style.fontFamily = "sans-serif";
+        workingFrame.innerHTML = containerElement.innerHTML;
+        
+        // Remove download button inside printed output layout frame sheets
+        const innerBtn = workingFrame.querySelector(".download-pdf-trigger");
+        if(innerBtn) innerBtn.remove();
+
+        const configOptions = {
+            margin: 10,
+            filename: 'EDITH-AI-Notes-' + Date.now() + '.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().from(workingFrame).save();
+    };
+    containerElement.appendChild(btn);
 }
 
 function appendMessageToUI(text, isUser) {
@@ -584,7 +614,12 @@ function appendMessageToUI(text, isUser) {
     const div = document.createElement("div"); div.className = \`flex \${isUser ? "justify-end" : "justify-start"} animate-msg w-full\`;
     div.innerHTML = \`<div class="p-4 px-5 max-w-[85%] text-sm \${isUser ? "user-bubble" : "ai-bubble break-words"}"\> \${isUser ? text : cleanAndParseMarkdown(text)}</div>\`;
     chatArea.appendChild(div); chatArea.scrollTop = chatArea.scrollHeight;
-    return div.querySelector("div");
+    
+    const targetBubble = div.querySelector("div");
+    if(!isUser && text.length > 0) {
+        injectDownloadActionTrigger(targetBubble);
+    }
+    return targetBubble;
 }
 
 function cleanAndParseMarkdown(t) { return marked.parse(t); }
@@ -604,5 +639,5 @@ function toggleMobileSidebar() {}
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Single Matrix Engine active on port ${PORT}`);
+    console.log(`🚀 Dynamic Matrix Engine active with client PDF rendering support on port ${PORT}`);
 });
