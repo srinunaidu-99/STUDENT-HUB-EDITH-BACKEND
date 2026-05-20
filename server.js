@@ -45,7 +45,7 @@ const userSchema = new mongoose.Schema({
     username: {
         type: String,
         required: true,
-        unique: true // Expected to be the user's valid email address for OTP routing
+        unique: true 
     },
     password: {
         type: String,
@@ -71,12 +71,11 @@ const Chat = mongoose.model("Chat", chatSchema);
 const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
-        user: process.env.EMAIL_USER, // Your Gmail account
-        pass: process.env.EMAIL_PASS  // Your 16-character Google App Password
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS  
     }
 });
 
-// In-memory runtime cache for handling short-lived OTP token verification state
 const otpCache = {};
 
 // --- SECURE AUTHENTICATION MIDDLEWARE ---
@@ -111,7 +110,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 } // 10MB individual file upper boundary
+    limits: { fileSize: 10 * 1024 * 1024 } 
 });
 
 // --- INTELLIGENCE CORE LAYER (GROQ ENGINE) ---
@@ -127,22 +126,15 @@ const MAX_HISTORY = 15;
 app.post("/api/register", async (req, res) => {
     try {
         const { username, password } = req.body;
-
         if (!username || !password) {
             return res.status(400).json({ error: "Username (Email) and password required" });
         }
-
         const existingUser = await User.findOne({ username });
         if (existingUser) {
             return res.status(400).json({ error: "User profile already registered under this node" });
         }
-
         const hashedPassword = await bcrypt.hash(password, 10);
-        await User.create({
-            username,
-            password: hashedPassword
-        });
-
+        await User.create({ username, password: hashedPassword });
         res.json({ message: "Registration successful" });
     } catch (err) {
         res.status(500).json({ error: "Registration sequence failure" });
@@ -153,16 +145,13 @@ app.post("/api/login", async (req, res) => {
     try {
         const { username, password } = req.body;
         const user = await User.findOne({ username });
-
         if (!user) {
             return res.status(400).json({ error: "Invalid identity credentials" });
         }
-
         const validPassword = await bcrypt.compare(password, user.password);
         if (!validPassword) {
             return res.status(400).json({ error: "Invalid identity credentials" });
         }
-
         const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "24h" });
         res.json({ token, username: user.username });
     } catch (err) {
@@ -170,121 +159,99 @@ app.post("/api/login", async (req, res) => {
     }
 });
 
-// --- REAL OTP PASSWORD RECOVERY PIPELINE ---
-
-// Step 1: Generate and Send Real OTP Code
+// --- OTP PASSWORD RECOVERY ---
 app.post("/api/forgot-password/request", async (req, res) => {
     try {
-        const { contact } = req.body; // Expecting user email input vector
-        if (!contact) {
-            return res.status(400).json({ error: "Target destination parameter missing." });
-        }
-
-        // Verify user exists before sending an OTP
+        const { contact } = req.body;
+        if (!contact) return res.status(400).json({ error: "Target destination parameter missing." });
         const userExists = await User.findOne({ username: contact });
-        if (!userExists) {
-            return res.status(404).json({ error: "No account profile mapping found for this email address." });
-        }
+        if (!userExists) return res.status(404).json({ error: "No account profile mapping found for this email address." });
 
-        // Generate secure 6-digit dynamic OTP
         const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-        // Save state to transient verification map (Expires in 5 minutes)
-        otpCache[contact] = {
-            otp: generatedOtp,
-            expiresAt: Date.now() + 5 * 60 * 1000,
-            verified: false
-        };
+        otpCache[contact] = { otp: generatedOtp, expiresAt: Date.now() + 5 * 60 * 1000, verified: false };
 
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: contact,
             subject: "EDITH AI - Reset Security Credentials Token Verification",
-            html: `
-                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 500px; margin: auto; padding: 30px; background-color: #0a0b17; color: #f3f4f6; border-radius: 16px; border: 1px solid #1e1b4b;">
-                    <h2 style="color: #6366f1; text-align: center; font-size: 22px; font-weight: 700; margin-bottom: 20px;">EDITH Identity Verification</h2>
-                    <p style="font-size: 14px; color: #9ca3af; line-height: 1.6;">An operator has requested a security modification sequence for this communication node. Enter this authorization token to confirm access:</p>
-                    <div style="font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #1e1b4b, #311042); padding: 16px; border-radius: 12px; text-align: center; letter-spacing: 6px; color: #a5b4fc; margin: 25px 0; border: 1px solid rgba(99,102,241,0.3);">
-                        ${generatedOtp}
-                    </div>
-                    <p style="font-size: 12px; color: #6b7280; text-align: center; margin-top: 20px;">Security threshold duration: This unique token will expire inside 5 minutes.</p>
-                </div>
-            `
+            html: `<div style="font-family: sans-serif; max-width: 500px; margin: auto; padding: 30px; background-color: #0a0b17; color: #f3f4f6; border-radius: 16px; border: 1px solid #1e1b4b;">
+                    <h2 style="color: #6366f1; text-align: center;">EDITH Identity Verification</h2>
+                    <div style="font-size: 28px; font-weight: 700; background: #1e1b4b; padding: 16px; border-radius: 12px; text-align: center; color: #a5b4fc; margin: 25px 0;">${generatedOtp}</div>
+                   </div>`
         };
-
         await transporter.sendMail(mailOptions);
-        return res.json({ message: "Verification sequence dispatched to your verified email node." });
-
+        return res.json({ message: "Verification sequence dispatched." });
     } catch (err) {
-        console.error("Mail Network Infrastructure Failure:", err);
-        res.status(500).json({ error: "Failed to dispatch outgoing security token." });
+        res.status(500).json({ error: "Failed to dispatch token." });
     }
 });
 
-// Step 2: Validate Dispatched User Token
 app.post("/api/forgot-password/verify", async (req, res) => {
     try {
         const { contact, code } = req.body;
         const record = otpCache[contact];
-
-        if (!record) {
-            return res.status(400).json({ error: "No recovery request pipeline initiated for this node." });
-        }
+        if (!record) return res.status(400).json({ error: "No recovery pipeline initiated." });
         if (Date.now() > record.expiresAt) {
             delete otpCache[contact];
-            return res.status(400).json({ error: "Security validation lifetime window expired." });
+            return res.status(400).json({ error: "Validation window expired." });
         }
-        if (record.otp !== code.trim()) {
-            return res.status(400).json({ error: "Security credential validation mismatch." });
-        }
-
+        if (record.otp !== code.trim()) return res.status(400).json({ error: "Credential validation mismatch." });
         record.verified = true;
-        return res.json({ message: "Identity state approved. Proceed to structural adjustment." });
+        return res.json({ message: "Identity state approved." });
     } catch (err) {
-        res.status(500).json({ error: "Token authorization module failure." });
+        res.status(500).json({ error: "Token authorization failure." });
     }
 });
 
-// Step 3: Mutate Persistent Core Password Mapping
 app.post("/api/forgot-password/reset", async (req, res) => {
     try {
         const { contact, password } = req.body;
         const record = otpCache[contact];
-
-        if (!record || !record.verified) {
-            return res.status(403).json({ error: "Unauthorized state access mutation rejected." });
-        }
-
+        if (!record || !record.verified) return res.status(403).json({ error: "Unauthorized access rejected." });
         const user = await User.findOne({ username: contact });
-        if (!user) {
-            return res.status(404).json({ error: "User signature matrix reference lost." });
-        }
+        if (!user) return res.status(404).json({ error: "User signature lost." });
 
-        // Apply encryption modification to persistence stack
         user.password = await bcrypt.hash(password, 10);
         await user.save();
-
-        // Wipe transient verification block from memory allocation maps
         delete otpCache[contact];
-
-        return res.json({ message: "Database structural mutation successfully finalized." });
+        return res.json({ message: "Password updated successfully." });
     } catch (err) {
         res.status(500).json({ error: "System mutation update failure." });
     }
 });
 
-// --- CONVERSATIONAL MATRIX STREAMS ---
+// --- FIXED ULTRA-LOW LATENCY CONVERSATIONAL MATRIX STREAMS ---
 app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
     const uploadedFiles = req.files || [];
     try {
-        const { message, isSummarize } = req.body;
+        const { message, isSummarize, sessionId } = req.body;
         const userId = req.user.id;
 
         if (!message && uploadedFiles.length === 0) {
             return res.status(400).json({ error: "Empty request context arrays" });
         }
 
-        // Ingest and extract context strings from standard file paths
+        // 1. CHAT DATABASE MANAGEMENT (CRUCIAL FIX FOR RE-OPENED SIDEBAR CHATS)
+        let activeChatSessionId = sessionId;
+        if (!activeChatSessionId || activeChatSessionId === "null") {
+            const newChatRecord = await Chat.create({
+                userId,
+                messages: []
+            });
+            activeChatSessionId = newChatRecord._id.toString();
+        }
+
+        // Set Headers Immediately to Kill Buffer Compression Lag on Render / Nginx Network Layers
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no"); // THIS STOPS RENDER ENGINE BUFFER BLOCKING INSTANTLY!
+        
+        // Expose custom session IDs to modern browsers
+        res.setHeader("Access-Control-Expose-Headers", "X-Session-Id");
+        res.setHeader("X-Session-Id", activeChatSessionId);
+        res.flushHeaders(); 
+
         let fileContext = "";
         for (const file of uploadedFiles) {
             if (
@@ -303,19 +270,18 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
 
         // Memory State System Framework Initializer
         if (!userChats[userId]) {
-            const legacyChats = await Chat.find({ userId }).sort({ createdAt: -1 }).limit(5);
             userChats[userId] = [
                 {
                     role: "system",
                     content: "You are EDITH AI. Help students clearly. Summarize when requested. Analyze uploaded files. Keep answers clean, scannable, and markdown compliant."
                 }
             ];
-
-            if (legacyChats.length > 0) {
-                for (const session of legacyChats.reverse()) {
-                    if (Array.isArray(session.messages)) {
-                        session.messages.forEach(m => userChats[userId].push(m));
-                    }
+            
+            // Sync with DB if session is active
+            if (sessionId && sessionId !== "null") {
+                const existingSession = await Chat.findById(sessionId);
+                if (existingSession && Array.isArray(existingSession.messages)) {
+                    existingSession.messages.forEach(m => userChats[userId].push(m));
                 }
             }
         }
@@ -328,22 +294,14 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
 
         userChats[userId].push({ role: "user", content: finalPrompt });
 
-        // Maintain operational context sizing constraints
         if (userChats[userId].length > MAX_HISTORY) {
             userChats[userId] = [userChats[userId][0], ...userChats[userId].slice(-MAX_HISTORY)];
         }
 
-        // Initialize Chunked Network Transfer Stream
-        res.writeHead(200, {
-            "Content-Type": "text/plain; charset=utf-8",
-            "Transfer-Encoding": "chunked",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive"
-        });
-
+        // Trigger dynamic API streaming request
         const stream = await client.chat.completions.create({
             model: "llama-3.3-70b-versatile",
-            messages: userChats[userId],
+            messages: userChats[userId].map(m => ({ role: m.role, content: m.content })),
             stream: true
         });
 
@@ -352,23 +310,24 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
             const content = chunk.choices?.[0]?.delta?.content || "";
             if (content) {
                 fullReply += content;
-                res.write(content);
+                res.write(content); // Pushes bits straight to frontend live streaming frame
             }
         }
         res.end();
 
-        // Append finalized message payload matrices to arrays
+        // Save persistent records to Mongo Layer
         userChats[userId].push({ role: "assistant", content: fullReply });
 
-        await Chat.create({
-            userId,
-            messages: [
-                { role: "user", content: message || "[Uploaded Structural Documents Matrix]" },
-                { role: "assistant", content: fullReply }
-            ]
+        await Chat.findByIdAndUpdate(activeChatSessionId, {
+            $push: {
+                messages: [
+                    { role: "user", content: message || "[Uploaded Structural Documents Matrix]" },
+                    { role: "assistant", content: fullReply }
+                ]
+            }
         });
 
-        // Unlink and garbage collect physical temporary filesystem buffers
+        // Cleanup temp file buffers
         for (const f of uploadedFiles) {
             if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
         }
@@ -379,12 +338,12 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
             if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
         }
         if (!res.headersSent) {
-            res.status(500).json({ error: "AI pipeline communication vector failure." });
+            res.status(500).write("AI pipeline communication vector failure.");
         }
+        res.end();
     }
 });
 
-// Fetch authentic operational user message indexes
 app.get("/api/history", auth, async (req, res) => {
     try {
         const chats = await Chat.find({ userId: req.user.id }).sort({ createdAt: -1 }).limit(20);
@@ -394,7 +353,6 @@ app.get("/api/history", auth, async (req, res) => {
     }
 });
 
-// App Engine Entry Point
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "../frontend/login.html"));
 });
