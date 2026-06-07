@@ -152,7 +152,7 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
         }
 
         let activeChatSessionId = sessionId;
-        if (!activeChatSessionId || activeChatSessionId === "null") {
+        if (!activeChatSessionId || activeChatSessionId === "null" || activeChatSessionId === "undefined") {
             const newChatRecord = await Chat.create({ userId, messages: [] });
             activeChatSessionId = newChatRecord._id.toString();
         }
@@ -175,17 +175,15 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
             }
         }
 
-        if (!userChats[userId]) {
-            userChats[userId] = [{
-                role: "system",
-                content: "You are EDITH AI. Help students clearly. Summarize when requested. Analyze uploaded files. Keep answers clean, scannable, and markdown compliant."
-            }];
-            
-            if (sessionId && sessionId !== "null") {
-                const existingSession = await Chat.findById(sessionId);
-                if (existingSession && Array.isArray(existingSession.messages)) {
-                    existingSession.messages.forEach(m => userChats[userId].push(m));
-                }
+        userChats[userId] = [{
+            role: "system",
+            content: "You are EDITH AI. Help students clearly. Summarize when requested. Analyze uploaded files. Keep answers clean, scannable, and markdown compliant."
+        }];
+        
+        if (activeChatSessionId) {
+            const existingSession = await Chat.findById(activeChatSessionId);
+            if (existingSession && Array.isArray(existingSession.messages)) {
+                existingSession.messages.forEach(m => userChats[userId].push(m));
             }
         }
 
@@ -217,8 +215,6 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
         }
         res.end();
 
-        userChats[userId].push({ role: "assistant", content: fullReply });
-
         await Chat.findByIdAndUpdate(activeChatSessionId, {
             $push: {
                 messages: {
@@ -239,7 +235,9 @@ app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
         for (const f of uploadedFiles) {
             if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
         }
-        if (!res.headersSent) res.status(500).write("AI pipeline communication error.");
+        if (!res.headersSent) {
+            res.status(500).write("AI pipeline communication error.");
+        }
         res.end();
     }
 });
@@ -265,239 +263,310 @@ app.get("/api/history", auth, async (req, res) => {
     }
 });
 
-// --- FRONTEND GENERATION ENGINE WITH INSTANT UI FIXES ---
+// --- FRONTEND ENGINE RENDERING UPGRADED MODERN DASHBOARD INTERFACE ---
 app.get("/", (req, res) => {
     res.send(`
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EDITH - Intelligence Hub</title>
+    <title>Edith AI Assistant</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" />
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #030712 70%); overflow: hidden; }
-        .chat-container::-webkit-scrollbar, .sidebar-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
-        .chat-container::-webkit-scrollbar-track, .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
-        .chat-container::-webkit-scrollbar-thumb, .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.15); border-radius: 10px; }
-        @keyframes pulseGlow {
-            0%, 100% { transform: scale(1); box-shadow: 0 0 25px 2px rgba(99, 102, 241, 0.4), 0 0 50px 10px rgba(168, 85, 247, 0.2); }
-            50% { transform: scale(1.03); box-shadow: 0 0 40px 8px rgba(99, 102, 241, 0.6), 0 0 70px 20px rgba(168, 85, 247, 0.4); }
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f5f3ff', 100: '#ede9fe', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca',
+                        }
+                    }
+                }
+            }
         }
-        .edith-orb { animation: pulseGlow 4s ease-in-out infinite; background: linear-gradient(135deg, #6366f1, #a855f7); }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(16px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        .animate-msg { animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        .glass-panel { background: rgba(10, 11, 23, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.06); }
-        .ai-bubble { background: rgba(23, 24, 51, 0.6); border: 1px solid rgba(99, 102, 241, 0.25); color: #f3f4f6; border-radius: 20px 20px 20px 4px; display: flex; flex-col; gap: 12px; }
-        .user-bubble { background: linear-gradient(135deg, #4f46e5, #3730a3); color: white; border-radius: 20px 20px 4px 20px; box-shadow: 0 4px 16px rgba(79, 70, 229, 0.25); }
-        .history-active { background: rgba(255, 255, 255, 0.12) !important; color: #ffffff !important; font-weight: 600 !important; border-left: 3px solid #6366f1 !important; }
-        pre { background: #020617 !important; padding: 14px; border-radius: 10px; overflow-x: auto; border: 1px solid rgba(255, 255, 255, 0.05); margin: 8px 0; }
-        code { color: #a5b4fc; font-size: 0.85rem; }
-        .delete-chat-btn { opacity: 0; transition: opacity 0.2s ease; cursor: pointer; }
-        .history-item-wrapper:hover .delete-chat-btn { opacity: 1; }
-        .download-pdf-trigger { margin-top: 12px; width: max-content; display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.5); font-size: 12px; font-weight: 600; border-radius: 10px; color: #a5b4fc; transition: all 0.2s; cursor: pointer; }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+        .chat-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .chat-scroll::-webkit-scrollbar-track { background: transparent; }
+        .dark .chat-scroll::-webkit-scrollbar-thumb { background: #27272a; border-radius: 99px; }
+        html:not(.dark) .chat-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px; }
+        .prose-content p { margin-bottom: 0.75rem; }
+        .prose-content p:last-child { margin-bottom: 0; }
+        .prose-content ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+        .prose-content ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+        .code-block-container { position: relative; margin: 16px 0; border-radius: 12px; overflow: hidden; border: 1px solid #27272a; }
+        html:not(.dark) .code-block-container { border: 1px solid #e2e8f0; }
+        pre { background: #09090b !important; padding: 16px; overflow-x: auto; margin: 0; }
+        html:not(.dark) pre { background: #f8fafc !important; }
+        code { color: #f4f4f5; font-size: 0.875rem; font-family: ui-monospace, monospace; }
+        html:not(.dark) code { color: #0f172a; }
+        .dot { animation: bouncePoint 1.4s infinite ease-in-out; width: 6px; height: 6px; background-color: #6366f1; border-radius: 50%; display: inline-block; }
+        .dot:nth-child(2) { animation-delay: 0.2s; }
+        .dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bouncePoint { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+        .download-pdf-trigger { margin-top: 12px; width: max-content; display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); font-size: 12px; font-weight: 600; border-radius: 10px; color: #818cf8; transition: all 0.2s; cursor: pointer; }
         .download-pdf-trigger:hover { background: #4f46e5; color: white; transform: translateY(-1px); }
     </style>
 </head>
-<body class="text-gray-100 min-h-screen flex items-center justify-center p-0 sm:p-4">
-<div class="w-full max-w-6xl h-screen sm:h-[92vh] flex glass-panel sm:rounded-3xl shadow-2xl relative overflow-hidden">
-    <aside class="w-64 bg-black/20 flex flex-col h-full hidden lg:flex border-r border-white/5 transition-all">
-        <div class="p-4 flex flex-col gap-2">
-            <button onclick="createNewChatSession()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:bg-white/5 rounded-xl transition-all font-medium bg-white/5 border border-white/10">
-                <i class="fa-regular fa-pen-to-square text-base text-indigo-400"></i> New chat
+<body class="w-screen h-screen flex dark:bg-[#09090b] bg-slate-50 text-slate-900 dark:text-zinc-100 transition-colors duration-200 overflow-hidden">
+    <div id="sidebarOverlay" onclick="toggleSidebar(false)" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"></div>
+    <aside id="sidebar" class="fixed inset-y-0 left-0 w-72 -translate-x-full lg:translate-x-0 lg:relative z-50 flex flex-col h-full dark:bg-[#121214] bg-white border-r dark:border-zinc-800 border-slate-200 transition-transform duration-300 ease-in-out">
+        <div class="p-4 space-y-4 shrink-0">
+            <div class="flex items-center justify-between px-1">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center text-white font-bold text-base shadow-md shadow-brand-500/20">E</div>
+                    <span class="text-lg font-bold tracking-tight dark:text-white text-slate-900">Edith <span class="text-brand-500 font-semibold">AI</span></span>
+                </div>
+            </div>
+            <button onclick="createNewChat()" class="w-full h-11 flex items-center justify-center gap-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 active:scale-[0.98] rounded-xl shadow-sm transition-all duration-200">
+                <i class="fa-solid fa-plus text-xs"></i> New Conversation
             </button>
         </div>
-        <div class="px-4 pt-4 pb-2"><span class="text-xs font-semibold text-gray-400 tracking-wider block uppercase">Recents</span></div>
-        <div id="historyLogContainer" class="flex-1 overflow-y-auto px-2 pb-4 space-y-1 sidebar-scroll"></div>
-    </aside>
-
-    <div class="flex-1 flex flex-col h-full relative bg-transparent">
-        <div class="p-4 border-b border-white/5 flex justify-between items-center bg-gray-950/20 px-6">
-            <div class="flex items-center gap-3.5">
-                <div class="edith-orb w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg">E</div>
-                <div>
-                    <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-indigo-300 bg-clip-text text-transparent">EDITH AI</h1>
-                    <p class="text-[10px] uppercase tracking-widest text-indigo-400 font-bold"><span class="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block animate-pulse mr-1.5"></span>System: Ready</p>
+        <div class="px-5 py-2.5 border-b dark:border-zinc-800 border-slate-100 flex justify-between items-center text-xs font-bold uppercase tracking-wider dark:text-zinc-500 text-slate-400 shrink-0">
+            <span>History Matrix</span>
+            <span id="chatCounter" class="bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md font-mono text-xs text-brand-500">0</span>
+        </div>
+        <div id="chatHistoryList" class="flex-1 overflow-y-auto p-3 space-y-1 chat-scroll">
+            <div class="text-center py-8 text-xs text-zinc-400 font-medium animate-pulse">Loading history pipeline...</div>
+        </div>
+        <div class="p-4 border-t dark:border-zinc-800 border-slate-200 flex items-center justify-between dark:bg-zinc-900/20 bg-slate-50/50 shrink-0">
+            <div class="flex items-center gap-3 overflow-hidden">
+                <div class="w-9 h-9 rounded-xl bg-zinc-800 dark:bg-zinc-800 border border-zinc-700 text-zinc-200 flex items-center justify-center text-sm font-bold shadow-sm shrink-0" id="userBadge">UR</div>
+                <div class="overflow-hidden">
+                    <span class="block text-sm font-bold dark:text-zinc-200 text-slate-800 truncate" id="userNameFooter">Operator</span>
+                    <span class="block text-[11px] font-medium text-zinc-500 truncate">Student Hub Plus</span>
                 </div>
             </div>
         </div>
+    </aside>
 
-        <div id="chatArea" class="flex-1 overflow-y-auto p-6 space-y-6 chat-container"></div>
-
-        <div class="p-4 sm:p-6 bg-gray-950/40 border-t border-white/5 backdrop-blur-md">
-            <div class="flex flex-wrap gap-2 mb-3.5 px-1">
-                <button onclick="toggleSummarize()" id="sumBtn" class="px-4 py-1.5 rounded-full border border-white/10 hover:border-indigo-500/40 bg-white/5 text-[11px] font-medium flex items-center gap-2">
-                    Summarize Notes: <span id="sumStatus" class="font-bold text-gray-400">OFF</span>
+    <div class="flex-1 flex flex-col h-full overflow-hidden w-full relative">
+        <header class="h-16 border-b dark:border-zinc-800 border-slate-200 flex justify-between items-center px-4 md:px-6 dark:bg-[#121214] bg-white shrink-0 z-10">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleSidebar(true)" class="lg:hidden w-10 h-10 border dark:border-zinc-800 border-slate-200 rounded-xl flex items-center justify-center dark:text-zinc-300 text-slate-600 bg-transparent hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors">
+                    <i class="fa-solid fa-bars text-sm"></i>
                 </button>
-                <label class="px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-[11px] font-medium cursor-pointer flex items-center gap-1.5">
-                    <i class="fa-solid fa-paperclip text-indigo-400"></i> Attach Files
-                    <input type="file" id="fileInput" multiple class="hidden" />
-                </label>
+                <div id="activeChatTitleHeader" class="hidden lg:block text-sm font-semibold text-slate-700 dark:text-zinc-300 max-w-md truncate">Ready to link pipelines</div>
             </div>
-            <div class="flex gap-3 items-center relative">
-                <input type="text" id="msg" placeholder="Ask EDITH anything..." class="w-full bg-gray-900/80 border border-white/10 focus:border-indigo-500/50 rounded-2xl pl-5 pr-16 py-4 outline-none text-sm text-gray-100" onkeypress="if(event.key==='Enter')sendMsg()" />
-                <button onclick="sendMsg()" class="absolute right-3 w-10 h-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl flex items-center justify-center"><i class="fa-solid fa-paper-plane text-xs"></i></button>
+            <div class="flex items-center gap-3">
+                <button onclick="switchDashboardTheme()" class="w-9 h-9 rounded-xl border dark:border-zinc-800 border-slate-200 flex items-center justify-center text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all">
+                    <i id="themeToggleIcon" class="fa-solid fa-moon text-sm"></i>
+                </button>
+                <div class="text-xs font-semibold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Cloud Active
+                </div>
             </div>
-        </div>
+        </header>
+
+        <main id="chatWindow" class="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 chat-scroll dark:bg-[#09090b] bg-slate-50/40 flex flex-col"></main>
+
+        <footer class="p-4 dark:bg-[#121214] bg-white border-t dark:border-zinc-800 border-slate-200 shrink-0">
+            <div class="max-w-3xl mx-auto w-full">
+                <div class="flex flex-wrap items-center gap-3 mb-2 px-1">
+                    <button onclick="toggleSummarizeMode()" id="summarizeToggleBtn" class="text-xs dark:text-zinc-400 text-slate-500 border border-slate-200 dark:border-zinc-800 px-2.5 py-1 rounded-lg hover:dark:text-indigo-400 transition-colors flex items-center gap-1.5 font-bold">
+                        Summarize Mode: <span id="summarizeBadge" class="text-slate-400">OFF</span>
+                    </button>
+                    <label class="text-xs dark:text-zinc-400 text-slate-500 hover:dark:text-zinc-200 hover:text-slate-700 cursor-pointer flex items-center gap-1.5 font-bold transition-colors">
+                        <i class="fa-solid fa-paperclip text-xs text-brand-500"></i> Attach Media
+                        <input type="file" id="fileAttachment" multiple class="hidden" onchange="handleFileSelect()" />
+                    </label>
+                    <span id="fileBadgeLabel" class="text-xs text-brand-500 font-bold bg-brand-500/10 px-2 py-0.5 rounded-md hidden"></span>
+                </div>
+                <div class="flex items-center gap-2 relative bg-slate-100 dark:bg-zinc-900 border dark:border-zinc-800 border-slate-200 rounded-xl px-4 py-2 focus-within:ring-2 focus-within:ring-brand-500/20 focus-within:border-brand-500/50 transition-all duration-200">
+                    <input type="text" id="userInputText" placeholder="Ask Edith anything..." class="w-full bg-transparent outline-none py-1.5 pr-24 text-sm dark:text-zinc-100 text-slate-900 placeholder-slate-400 dark:placeholder-zinc-500 font-normal" onkeypress="if(event.key==='Enter')sendMessage()" />
+                    <div class="absolute right-2 flex items-center gap-1.5">
+                        <button onclick="toggleSpeech()" id="speechBtn" class="w-8 h-8 text-slate-400 dark:text-zinc-500 hover:text-brand-500 rounded-lg flex items-center justify-center transition-all"><i class="fa-solid fa-microphone text-sm"></i></button>
+                        <button onclick="sendMessage()" class="w-8 h-8 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center justify-center transition-all shadow-sm active:scale-95"><i class="fa-solid fa-paper-plane text-xs"></i></button>
+                    </div>
+                </div>
+            </div>
+        </footer>
     </div>
-</div>
 
 <script>
-const API_BASE = window.location.origin;
-const chatArea = document.getElementById("chatArea");
-const historyLogContainer = document.getElementById("historyLogContainer");
-let isSummarize = false, currentActiveSessionId = null, globallyCachedHistoryTree = [];
+const API_URL = window.location.origin;
+const chatWindow = document.getElementById("chatWindow");
+const chatHistoryList = document.getElementById("chatHistoryList");
+const activeChatTitleHeader = document.getElementById("activeChatTitleHeader");
+let currentSessionId = null, cachedSessionsList = [], voiceRecognitionInstance = null, isVoiceRecording = false, isSummarizeActive = false;
 
-window.onload = () => { loadChatHistory(true); };
+function initDashboardTheme() {
+    const activeTheme = localStorage.getItem('edith-theme') || 'dark';
+    document.documentElement.classList.toggle('dark', activeTheme === 'dark');
+    document.getElementById("themeToggleIcon").className = activeTheme === 'dark' ? "fa-solid fa-sun text-sm text-amber-400" : "fa-solid fa-moon text-sm text-slate-600";
+}
+function switchDashboardTheme() {
+    localStorage.setItem('edith-theme', document.documentElement.classList.contains('dark') ? 'light' : 'dark');
+    initDashboardTheme();
+}
+initDashboardTheme();
 
-function renderBlankWelcomeInterface() {
-    chatArea.innerHTML = \`<div id="welcomeScreen" class="flex flex-col justify-center items-center mt-24 text-center animate-msg"><div class="edith-orb w-20 h-20 rounded-3xl flex items-center justify-center text-3xl text-white mb-6"><i class="fa-solid fa-brain"></i></div><h2 class="text-2xl font-bold mb-2 text-white">Ask anything to generate and download PDF Notes!</h2></div>\`;
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechLib = window.SpeechRecognition || window.webkitSpeechRecognition;
+    voiceRecognitionInstance = new SpeechLib();
+    voiceRecognitionInstance.onstart = () => { isVoiceRecording = true; document.getElementById("speechBtn").classList.add("text-red-500", "animate-pulse"); };
+    voiceRecognitionInstance.onend = () => { isVoiceRecording = false; document.getElementById("speechBtn").classList.remove("text-red-500", "animate-pulse"); };
+    voiceRecognitionInstance.onresult = (e) => { document.getElementById("userInputText").value = e.results[0][0].transcript; };
+}
+function toggleSpeech() { if (!voiceRecognitionInstance) return alert("Speech unsupported."); isVoiceRecording ? voiceRecognitionInstance.stop() : voiceRecognitionInstance.start(); }
+function toggleSidebar(open) { document.getElementById("sidebar").classList.toggle("-translate-x-full", !open); document.getElementById("sidebarOverlay").classList.toggle("hidden", !open); }
+
+function toggleSummarizeMode() {
+    isSummarizeActive = !isSummarizeActive;
+    const badge = document.getElementById("summarizeBadge");
+    badge.textContent = isSummarizeActive ? "ON" : "OFF";
+    badge.className = isSummarizeActive ? "text-indigo-500 font-bold" : "text-slate-400";
 }
 
-async function loadChatHistory(autoLoadFirstSession = false) {
-    const token = localStorage.getItem("token") || "dummy";
+window.onload = () => { marked.setOptions({ breaks: true, gfm: true }); loadChatSessions(true); };
+
+async function apiCall(endpoint, config = {}) {
+    const headers = { ...(config.headers || {}), "Authorization": "Bearer " + (localStorage.getItem("token") || "dummy") };
+    if (!(config.body instanceof FormData) && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+    return await fetch(API_URL + endpoint, { ...config, headers });
+}
+
+async function loadChatSessions(autoLoadFirst = false) {
     try {
-        const response = await fetch(\`\${API_BASE}/api/history\`, { headers: { "Authorization": \`Bearer \${token}\` } });
-        if (response.ok) {
-            globallyCachedHistoryTree = await response.json();
-            renderSidebarHistoryList(globallyCachedHistoryTree);
-            if (autoLoadFirstSession && globallyCachedHistoryTree.length > 0) loadSelectedSessionStream(globallyCachedHistoryTree[0]._id);
-            else if(globallyCachedHistoryTree.length === 0) renderBlankWelcomeInterface();
-        } else { renderBlankWelcomeInterface(); }
-    } catch (err) { renderBlankWelcomeInterface(); }
+        const response = await apiCall("/api/history");
+        if (!response.ok) throw new Error();
+        cachedSessionsList = await response.json();
+        renderSidebarList(cachedSessionsList);
+        if (autoLoadFirst && cachedSessionsList.length > 0) selectSession(cachedSessionsList[0]._id);
+        else if (cachedSessionsList.length === 0) showEmptyStateWelcome();
+    } catch (err) { showEmptyStateWelcome(); }
 }
 
-function renderSidebarHistoryList(historyArray) {
-    if (!historyArray || historyArray.length === 0) {
-        historyLogContainer.innerHTML = \`<div class="text-center py-8 text-[11px] text-gray-500">No sessions.</div>\`;
+function renderSidebarList(sessions) {
+    chatHistoryList.innerHTML = "";
+    document.getElementById("chatCounter").textContent = sessions.length;
+    if (sessions.length === 0) {
+        chatHistoryList.innerHTML = '<div class="text-center py-8 text-xs text-zinc-500">No context logs found.</div>';
         return;
     }
-    historyLogContainer.innerHTML = "";
-    historyArray.forEach((session) => {
-        let displayTitle = session.messages?.[0]?.content || "Untitled Chat";
-        if (displayTitle.length > 20) displayTitle = displayTitle.substring(0, 20) + "...";
-
-        const itemWrapper = document.createElement("div");
-        itemWrapper.className = "flex items-center justify-between w-full relative group rounded-xl pr-2 hover:bg-white/5";
-
-        const btn = document.createElement("button");
-        btn.id = \`sidebar-session-\${session._id}\`;
-        btn.onclick = () => loadSelectedSessionStream(session._id);
-        btn.className = \`flex-1 text-left px-3 py-2.5 text-xs text-gray-300 rounded-xl truncate \${String(session._id) === String(currentActiveSessionId) ? 'history-active' : ''}\`;
-        btn.innerText = displayTitle;
-
-        itemWrapper.appendChild(btn);
-        historyLogContainer.appendChild(itemWrapper);
+    sessions.forEach(session => {
+        const isActive = session._id === currentSessionId;
+        let title = session.messages?.[0]?.content || 'Untitled Chat';
+        if (title.length > 22) title = title.substring(0, 22) + "...";
+        if(isActive) activeChatTitleHeader.textContent = title;
+        
+        const div = document.createElement("div");
+        div.className = \`group w-full flex items-center justify-between px-3 py-2.5 my-0.5 text-sm rounded-xl cursor-pointer \${isActive ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 font-semibold border border-brand-500/20' : 'text-zinc-400 hover:bg-zinc-900/60'}\`;
+        div.onclick = () => selectSession(session._id);
+        div.innerHTML = \`<span class="truncate flex items-center gap-2.5"><i class="fa-regular fa-message text-xs opacity-70"></i><span class="truncate">\${title}</span></span>
+        <button onclick="deleteSession(event, '\${session._id}')" class="p-1 text-zinc-500 hover:text-red-500 opacity-0 group-hover:opacity-100"><i class="fa-regular fa-trash-can text-xs"></i></button>\`;
+        chatHistoryList.appendChild(div);
     });
 }
 
-function loadSelectedSessionStream(sessionId) {
-    currentActiveSessionId = sessionId;
-    const session = globallyCachedHistoryTree.find(s => String(s._id) === String(sessionId));
-    chatArea.innerHTML = "";
-    if (session && session.messages) {
-        session.messages.forEach(msg => appendMessageToUI(msg.content, msg.role === "user"));
-    }
-}
+function createNewChat() { currentSessionId = null; chatWindow.innerHTML = ""; activeChatTitleHeader.textContent = "New Line"; showEmptyStateWelcome(); }
+function selectSession(id) { currentSessionId = id; renderSidebarList(cachedSessionsList); loadActiveMessages(); toggleSidebar(false); }
 
-function createNewChatSession() { currentActiveSessionId = null; renderBlankWelcomeInterface(); }
-
-async function sendMsg() {
-    const input = document.getElementById("msg"), fileInput = document.getElementById("fileInput"), message = input.value.trim();
-    if (!message && fileInput.files.length === 0) return;
-
-    appendMessageToUI(message, true);
-    input.value = "";
-
-    const formData = new FormData();
-    formData.append("message", message);
-    formData.append("isSummarize", isSummarize);
-    if (currentActiveSessionId) formData.append("sessionId", currentActiveSessionId);
-    for (let f of fileInput.files) formData.append("files", f);
-
-    // AI dynamic bubble placeholder create chesthunna build sheet framework loki
-    const welcome = document.getElementById("welcomeScreen"); if (welcome) welcome.remove();
-    const div = document.createElement("div"); div.className = "flex justify-start animate-msg w-full";
-    const bubbleInner = document.createElement("div");
-    bubbleInner.className = "p-5 max-w-[85%] text-sm ai-bubble break-words flex flex-col";
-    bubbleInner.innerHTML = "<em>Thinking...</em>";
-    div.appendChild(bubbleInner);
-    chatArea.appendChild(div);
-    chatArea.scrollTop = chatArea.scrollHeight;
-
+async function deleteSession(event, id) {
+    event.stopPropagation();
+    if (!confirm("Delete context loop?")) return;
     try {
-        const res = await fetch(\`\${API_BASE}/api/chat\`, { method: "POST", headers: { "Authorization": "Bearer dummy" }, body: formData });
-        const incomingSessionId = res.headers.get("X-Session-Id");
-        if (incomingSessionId && !currentActiveSessionId) currentActiveSessionId = incomingSessionId;
-
-        const reader = res.body.getReader(), decoder = new TextDecoder("utf-8");
-        let accumulatedText = "";
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            accumulatedText += decoder.decode(value, { stream: true });
-            bubbleInner.innerHTML = marked.parse(accumulatedText);
-            chatArea.scrollTop = chatArea.scrollHeight;
-        }
-        
-        // STREAMING COMPLETED! Ippudu button perfect ga container lo load chesthundi:
-        injectDownloadActionTrigger(bubbleInner);
-        loadChatHistory(false);
-    } catch (err) { bubbleInner.innerHTML = "Pipeline Connection Mismatch Fault."; }
+        await apiCall(\`/api/chat/\${id}\`, { method: "DELETE" });
+        if (currentSessionId === id) createNewChat();
+        loadChatSessions(true);
+    } catch (err) {}
 }
 
-function injectDownloadActionTrigger(containerElement) {
-    // Already button unte duplicate kakunda check chesthundi
-    if (containerElement.querySelector(".download-pdf-trigger")) return;
-
-    const btn = document.createElement("button");
-    btn.className = "download-pdf-trigger";
-    btn.innerHTML = \`<i class="fa-solid fa-file-pdf"></i> Download Notes PDF\`;
-    
-    btn.onclick = () => {
-        const workingFrame = document.createElement("div");
-        workingFrame.style.padding = "40px";
-        workingFrame.style.color = "#000000";
-        workingFrame.style.background = "#ffffff";
-        workingFrame.style.fontFamily = "sans-serif";
-        workingFrame.style.lineHeight = "1.6";
-        workingFrame.innerHTML = containerElement.innerHTML;
-        
-        // Output sheet sheet format nundi action trigger elements ni clean chesthundi
-        const innerBtn = workingFrame.querySelector(".download-pdf-trigger");
-        if(innerBtn) innerBtn.remove();
-
-        const configOptions = {
-            margin: 15,
-            filename: 'EDITH-AI-Notes.pdf',
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, logging: false, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-        html2pdf().from(workingFrame).set(configOptions).save();
-    };
-    containerElement.appendChild(btn);
+function loadActiveMessages() {
+    if (!currentSessionId) return;
+    const session = cachedSessionsList.find(s => s._id === currentSessionId);
+    chatWindow.innerHTML = "";
+    if (session && session.messages) session.messages.forEach(msg => insertMessageBubble(msg.role, msg.content));
+    chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
-function appendMessageToUI(text, isUser) {
-    const welcome = document.getElementById("welcomeScreen"); if (welcome) welcome.remove();
-    const div = document.createElement("div"); div.className = \`flex \${isUser ? "justify-end" : "justify-start"} animate-msg w-full\`;
-    div.innerHTML = \`<div class="p-5 max-w-[85%] text-sm \${isUser ? "user-bubble" : "ai-bubble break-words flex flex-col"}"\> \${isUser ? text : marked.parse(text)}</div>\`;
-    chatArea.appendChild(div); chatArea.scrollTop = chatArea.scrollHeight;
+function showEmptyStateWelcome() {
+    chatWindow.innerHTML = \`<div id="welcomeScreen" class="flex flex-col items-center justify-center flex-1 max-w-md mx-auto text-center space-y-3 my-auto"><div class="w-12 h-12 rounded-2xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-500 text-xl"><i class="fa-solid fa-brain"></i></div><h3 class="text-base font-bold">Ask EDITH anything to generate notes</h3></div>\`;
+}
+
+function insertMessageBubble(role, content) {
+    const welcome = document.getElementById("welcomeScreen"); if(welcome) welcome.remove();
+    const wrapper = document.createElement("div");
+    wrapper.className = \`flex gap-3 w-full max-w-3xl mx-auto py-2 \${role === 'user' ? 'flex-row-reverse' : 'flex-row'}\`;
     
-    const targetBubble = div.querySelector("div");
-    if(!isUser && text.length > 0) {
-        injectDownloadActionTrigger(targetBubble);
+    const bubble = document.createElement("div");
+    bubble.className = \`rounded-2xl px-4 py-3 text-sm md:text-base leading-relaxed break-words \${role === 'user' ? 'bg-brand-600 text-white ml-auto' : 'dark:bg-[#121214] bg-white border dark:border-zinc-800 border-slate-200 prose-content'}\`;
+    
+    if (role === 'user') bubble.textContent = content;
+    else {
+        bubble.innerHTML = marked.parse(content);
+        attachCodeBlockCopyLogic(bubble);
+        injectDownloadActionTrigger(bubble);
     }
-    return targetBubble;
+    wrapper.appendChild(bubble); chatWindow.appendChild(wrapper);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+    return bubble;
 }
 
-function toggleSummarize() { isSummarize = !isSummarize; document.getElementById("sumStatus").innerText = isSummarize ? "ON" : "OFF"; }
+function attachCodeBlockCopyLogic(container) {
+    container.querySelectorAll("pre").forEach(pre => {
+        const wrapper = document.createElement("div"); wrapper.className = "code-block-container";
+        const btn = document.createElement("button"); btn.className = "absolute top-2.5 right-2.5 bg-zinc-900 border text-zinc-400 text-xs px-2.5 py-1.5 rounded-lg";
+        btn.innerHTML = "Copy"; btn.onclick = () => { navigator.clipboard.writeText(pre.innerText); btn.innerHTML = "Copied"; setTimeout(() => btn.innerHTML="Copy", 2000); };
+        pre.parentNode.insertBefore(wrapper, pre); wrapper.appendChild(pre); wrapper.appendChild(btn);
+    });
+}
+
+function injectDownloadActionTrigger(container) {
+    if (container.querySelector(".download-pdf-trigger")) return;
+    const btn = document.createElement("button"); btn.className = "download-pdf-trigger"; btn.innerHTML = \`<i class="fa-solid fa-file-pdf"></i> Download Notes PDF\`;
+    btn.onclick = () => {
+        const f = document.createElement("div"); f.style.padding = "40px"; f.style.background = "#fff"; f.style.color = "#000"; f.innerHTML = container.innerHTML;
+        f.querySelectorAll("button").forEach(b => b.remove());
+        html2pdf().from(f).set({ margin: 15, filename: 'EDITH-Notes.pdf', html2canvas: { scale: 2 }, jsPDF: { format: 'a4' } }).save();
+    };
+    container.appendChild(btn);
+}
+
+async function sendMessage() {
+    const input = document.getElementById("userInputText"), fileSelector = document.getElementById("fileAttachment"), text = input.value.trim();
+    if (!text && fileSelector.files.length === 0) return;
+    
+    input.value = "";
+    if (text) insertMessageBubble('user', text);
+    
+    const bubble = insertMessageBubble('assistant', "<em>Syncing Core Matrix...</em>");
+    try {
+        const formData = new FormData();
+        formData.append("message", text);
+        formData.append("isSummarize", isSummarizeActive);
+        if (currentSessionId) formData.append("sessionId", currentSessionId);
+        for (let i = 0; i < fileSelector.files.length; i++) formData.append("files", fileSelector.files[i]);
+
+        const response = await apiCall("/api/chat", { method: "POST", body: formData });
+        const incomingId = response.headers.get("X-Session-Id");
+        if (incomingId && !currentSessionId) currentSessionId = incomingId;
+
+        const reader = response.body.getReader(), decoder = new TextDecoder("utf-8");
+        let chunkedText = "";
+        while (true) {
+            const { done, value } = await reader.read(); if (done) break;
+            chunkedText += decoder.decode(value, { stream: true });
+            bubble.innerHTML = marked.parse(chunkedText);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+        attachCodeBlockCopyLogic(bubble); injectDownloadActionTrigger(bubble);
+        clearFileSelector(); loadChatSessions(false);
+    } catch (err) { bubble.innerHTML = "<span class='text-red-500'>Connection pipeline breakdown.</span>"; }
+}
+
+function handleFileSelect() {
+    const f = document.getElementById("fileAttachment"), lbl = document.getElementById("fileBadgeLabel");
+    lbl.textContent = \`(\${f.files.length} selected)\`; lbl.classList.toggle("hidden", f.files.length === 0);
+}
+function clearFileSelector() { document.getElementById("fileAttachment").value = ""; document.getElementById("fileBadgeLabel").classList.add("hidden"); }
 </script>
 </body>
 </html>
@@ -505,5 +574,4 @@ function toggleSummarize() { isSummarize = !isSummarize; document.getElementById
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Single Server Engine running on port ${PORT}`);
-});
+    console.log
