@@ -263,9 +263,8 @@ app.get("/api/history", auth, async (req, res) => {
     }
 });
 
-// --- FRONTEND ENGINE RENDERING UPGRADED MODERN DASHBOARD INTERFACE ---
-app.get("/", (req, res) => {
-    res.send(`
+// --- HTML STATIC TEMPLATE STRIPPED OF CONFLICTING BACKTICKS ---
+const htmlTemplate = `
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
@@ -428,9 +427,9 @@ function toggleSummarizeMode() {
 window.onload = () => { marked.setOptions({ breaks: true, gfm: true }); loadChatSessions(true); };
 
 async function apiCall(endpoint, config = {}) {
-    const headers = { ...(config.headers || {}), "Authorization": "Bearer " + (localStorage.getItem("token") || "dummy") };
+    const headers = Object.assign({}, config.headers || {}, { "Authorization": "Bearer " + (localStorage.getItem("token") || "dummy") });
     if (!(config.body instanceof FormData) && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-    return await fetch(API_URL + endpoint, { ...config, headers });
+    return await fetch(API_URL + endpoint, Object.assign({}, config, { headers }));
 }
 
 async function loadChatSessions(autoLoadFirst = false) {
@@ -453,15 +452,14 @@ function renderSidebarList(sessions) {
     }
     sessions.forEach(session => {
         const isActive = session._id === currentSessionId;
-        let title = session.messages?.[0]?.content || 'Untitled Chat';
+        let title = session.messages && session.messages[0] ? session.messages[0].content : 'Untitled Chat';
         if (title.length > 22) title = title.substring(0, 22) + "...";
         if(isActive) activeChatTitleHeader.textContent = title;
         
         const div = document.createElement("div");
-        div.className = \`group w-full flex items-center justify-between px-3 py-2.5 my-0.5 text-sm rounded-xl cursor-pointer \${isActive ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 font-semibold border border-brand-500/20' : 'text-zinc-400 hover:bg-zinc-900/60'}\`;
+        div.className = "group w-full flex items-center justify-between px-3 py-2.5 my-0.5 text-sm rounded-xl cursor-pointer " + (isActive ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 font-semibold border border-brand-500/20' : 'text-zinc-400 hover:bg-zinc-900/60');
         div.onclick = () => selectSession(session._id);
-        div.innerHTML = \`<span class="truncate flex items-center gap-2.5"><i class="fa-regular fa-message text-xs opacity-70"></i><span class="truncate">\${title}</span></span>
-        <button onclick="deleteSession(event, '\${session._id}')" class="p-1 text-zinc-500 hover:text-red-500 opacity-0 group-hover:opacity-100"><i class="fa-regular fa-trash-can text-xs"></i></button>\`;
+        div.innerHTML = '<span class="truncate flex items-center gap-2.5"><i class="fa-regular fa-message text-xs opacity-70"></i><span class="truncate">' + title + '</span></span><button onclick="deleteSession(event, \'' + session._id + '\')" class="p-1 text-zinc-500 hover:text-red-500 opacity-0 group-hover:opacity-100"><i class="fa-regular fa-trash-can text-xs"></i></button>';
         chatHistoryList.appendChild(div);
     });
 }
@@ -473,7 +471,7 @@ async function deleteSession(event, id) {
     event.stopPropagation();
     if (!confirm("Delete context loop?")) return;
     try {
-        await apiCall(\`/api/chat/\${id}\`, { method: "DELETE" });
+        await apiCall("/api/chat/" + id, { method: "DELETE" });
         if (currentSessionId === id) createNewChat();
         loadChatSessions(true);
     } catch (err) {}
@@ -488,16 +486,16 @@ function loadActiveMessages() {
 }
 
 function showEmptyStateWelcome() {
-    chatWindow.innerHTML = \`<div id="welcomeScreen" class="flex flex-col items-center justify-center flex-1 max-w-md mx-auto text-center space-y-3 my-auto"><div class="w-12 h-12 rounded-2xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-500 text-xl"><i class="fa-solid fa-brain"></i></div><h3 class="text-base font-bold">Ask EDITH anything to generate notes</h3></div>\`;
+    chatWindow.innerHTML = '<div id="welcomeScreen" class="flex flex-col items-center justify-center flex-1 max-w-md mx-auto text-center space-y-3 my-auto"><div class="w-12 h-12 rounded-2xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-500 text-xl"><i class="fa-solid fa-brain"></i></div><h3 class="text-base font-bold">Ask EDITH anything to generate notes</h3></div>';
 }
 
 function insertMessageBubble(role, content) {
     const welcome = document.getElementById("welcomeScreen"); if(welcome) welcome.remove();
     const wrapper = document.createElement("div");
-    wrapper.className = \`flex gap-3 w-full max-w-3xl mx-auto py-2 \${role === 'user' ? 'flex-row-reverse' : 'flex-row'}\`;
+    wrapper.className = "flex gap-3 w-full max-w-3xl mx-auto py-2 " + (role === 'user' ? 'flex-row-reverse' : 'flex-row');
     
     const bubble = document.createElement("div");
-    bubble.className = \`rounded-2xl px-4 py-3 text-sm md:text-base leading-relaxed break-words \${role === 'user' ? 'bg-brand-600 text-white ml-auto' : 'dark:bg-[#121214] bg-white border dark:border-zinc-800 border-slate-200 prose-content'}\`;
+    bubble.className = "rounded-2xl px-4 py-3 text-sm md:text-base leading-relaxed break-words " + (role === 'user' ? 'bg-brand-600 text-white ml-auto' : 'dark:bg-[#121214] bg-white border dark:border-zinc-800 border-slate-200 prose-content');
     
     if (role === 'user') bubble.textContent = content;
     else {
@@ -521,7 +519,7 @@ function attachCodeBlockCopyLogic(container) {
 
 function injectDownloadActionTrigger(container) {
     if (container.querySelector(".download-pdf-trigger")) return;
-    const btn = document.createElement("button"); btn.className = "download-pdf-trigger"; btn.innerHTML = \`<i class="fa-solid fa-file-pdf"></i> Download Notes PDF\`;
+    const btn = document.createElement("button"); btn.className = "download-pdf-trigger"; btn.innerHTML = '<i class="fa-solid fa-file-pdf"></i> Download Notes PDF';
     btn.onclick = () => {
         const f = document.createElement("div"); f.style.padding = "40px"; f.style.background = "#fff"; f.style.color = "#000"; f.innerHTML = container.innerHTML;
         f.querySelectorAll("button").forEach(b => b.remove());
@@ -564,14 +562,18 @@ async function sendMessage() {
 
 function handleFileSelect() {
     const f = document.getElementById("fileAttachment"), lbl = document.getElementById("fileBadgeLabel");
-    lbl.textContent = \`(\${f.files.length} selected)\`; lbl.classList.toggle("hidden", f.files.length === 0);
+    lbl.textContent = "(" + f.files.length + " selected)"; lbl.classList.toggle("hidden", f.files.length === 0);
 }
 function clearFileSelector() { document.getElementById("fileAttachment").value = ""; document.getElementById("fileBadgeLabel").classList.add("hidden"); }
 </script>
 </body>
 </html>
-    `);
+`;
+
+app.get("/", (req, res) => {
+    res.send(htmlTemplate);
 });
 
 app.listen(PORT, () => {
-    console.log
+    console.log(`🚀 Single Server Engine running on port ${PORT}`);
+});
