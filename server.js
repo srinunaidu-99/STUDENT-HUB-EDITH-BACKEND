@@ -14,7 +14,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Environment Variables
+// Correctly point to the root directory (.env is one folder up from /backend)
 dotenv.config({
     path: path.resolve(__dirname, "../.env")
 });
@@ -57,17 +57,6 @@ const chatSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 const Chat = mongoose.model("Chat", chatSchema);
-
-// --- REAL OTP EMAIL CONFIGURATION (NODEMAILER) ---
-const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.EMAIL_USER, 
-        pass: process.env.EMAIL_PASS  
-    }
-});
-
-const otpCache = {};
 
 // --- SECURE AUTHENTICATION MIDDLEWARE ---
 function auth(req, res, next) {
@@ -263,7 +252,7 @@ app.get("/api/history", auth, async (req, res) => {
     }
 });
 
-// --- HTML STATIC TEMPLATE STRIPPED OF CONFLICTING BACKTICKS ---
+// --- SAFE STRIPPED HTML STRING ---
 const htmlTemplate = `
 <!DOCTYPE html>
 <html lang="en" class="dark">
