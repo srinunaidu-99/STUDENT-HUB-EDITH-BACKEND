@@ -97,22 +97,56 @@ const userChats = {};
 const MAX_HISTORY = 15;
 
 // --- USER ACCESSIBILITY ENDPOINTS ---
-app.post("/api/register", async (req, res) => {
+// Ensure this route is positioned after your 'upload' middleware declaration
+app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
+    const userId = req.user.id;
+    const { message, sessionId, isSummarize } = req.body;
+    const uploadedFiles = req.files || [];
+
     try {
-        const { username, password } = req.body;
-        if (!username || !password) return res.status(400).json({ error: "Username and password required" });
-        
-        const existingUser = await User.findOne({ username });
-        if (existingUser) return res.status(400).json({ error: "User profile already registered" });
-        
-        const hashedPassword = await bcrypt.hash(password, 10);
-        await User.create({ username, password: hashedPassword });
-        res.json({ message: "Registration successful" });
+        // 1. Set headers BEFORE any processing
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        res.setHeader("Access-Control-Expose-Headers", "X-Session-Id");
+
+        // 2. Session & File Logic
+        let activeChatSessionId = sessionId;
+        if (!activeChatSessionId || activeChatSessionId === "null") {
+            const newChatRecord = await Chat.create({ userId, messages: [] });
+            activeChatSessionId = newChatRecord._id.toString();
+        }
+        res.setHeader("X-Session-Id", activeChatSessionId);
+
+        // Process files here... (keep your existing file processing logic)
+
+        // 3. Stream from Groq
+        const stream = await client.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            messages: [/* Your history array logic */],
+            stream: true
+        });
+
+        // 4. Send chunks
+        for await (const chunk of stream) {
+            const content = chunk.choices?.[0]?.delta?.content || "";
+            if (content) res.write(content);
+        }
+
+        // 5. Signal Completion
+        res.end(); 
+
     } catch (err) {
-        res.status(500).json({ error: "Registration failure" });
+        console.error("❌ Neural Bridge Error:", err);
+        // Only attempt to send error if headers aren't already flushed
+        if (!res.headersSent) {
+            res.status(500).json({ error: "Pipeline failure" });
+        } else {
+            res.end();
+        }
     }
 });
-
 app.post("/api/login", async (req, res) => {
     try {
         const { username, password } = req.body;
