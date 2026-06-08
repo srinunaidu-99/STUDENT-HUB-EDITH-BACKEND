@@ -99,34 +99,32 @@ const MAX_HISTORY = 15;
 // --- USER ACCESSIBILITY ENDPOINTS ---
 // Ensure this route is positioned after your 'upload' middleware declaration
 app.post("/api/chat", auth, upload.array("files", 5), async (req, res) => {
-    const userId = req.user.id;
-    const { message, sessionId, isSummarize } = req.body;
-    const uploadedFiles = req.files || [];
-
     try {
-        // 1. Set headers BEFORE any processing
+        // Set headers for SSE (Server-Sent Events)
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
         res.setHeader("X-Accel-Buffering", "no");
         res.setHeader("Access-Control-Expose-Headers", "X-Session-Id");
+        
+        // ... (Session/File processing logic) ...
 
-        // 2. Session & File Logic
-        let activeChatSessionId = sessionId;
-        if (!activeChatSessionId || activeChatSessionId === "null") {
-            const newChatRecord = await Chat.create({ userId, messages: [] });
-            activeChatSessionId = newChatRecord._id.toString();
-        }
-        res.setHeader("X-Session-Id", activeChatSessionId);
-
-        // Process files here... (keep your existing file processing logic)
-
-        // 3. Stream from Groq
         const stream = await client.chat.completions.create({
             model: "llama-3.3-70b-versatile",
-            messages: [/* Your history array logic */],
+            messages: [...], 
             stream: true
         });
+
+        for await (const chunk of stream) {
+            const content = chunk.choices?.[0]?.delta?.content || "";
+            if (content) res.write(content);
+        }
+        res.end(); // IMPORTANT: Close the stream connection
+    } catch (err) {
+        if (!res.headersSent) res.status(500).json({ error: "Pipeline failure" });
+        else res.end();
+    }
+});
 
         // 4. Send chunks
         for await (const chunk of stream) {
