@@ -248,10 +248,6 @@ app.post(
                 }
             }
 
-            if (!userChats[userId]) {
-                userChats[userId] = [];
-            }
-
             let finalPrompt = message || "";
 
             if (isSummarize === "true") {
@@ -260,24 +256,6 @@ app.post(
 
             finalPrompt += fileContext ? `\n\nUploaded Content:\n${fileContext}` : "";
 
-            // Push user query to session memory
-            userChats[userId].push({
-                role: "user",
-                parts: [{ text: finalPrompt }]
-            });
-
-            if (userChats[userId].length > MAX_HISTORY) {
-                userChats[userId] = userChats[userId].slice(-MAX_HISTORY);
-            }
-
-            res.writeHead(200, {
-                "Content-Type": "text/plain; charset=utf-8",
-                "Transfer-Encoding": "chunked",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive"
-            });
-
-            // System instructions context setup
             const systemInstruction = `
 You are Student Hub AI.
 1. Default language is English.
@@ -288,13 +266,21 @@ You are Student Hub AI.
 6. Keep answers clean and readable.
 `;
 
-            // Stream response using Gemini 2.5 Flash free tier model
+            // Call Gemini API stream first to catch any API/key errors before writing headers
             const responseStream = await ai.models.generateContentStream({
                 model: "gemini-2.5-flash",
-                contents: userChats[userId],
+                contents: finalPrompt,
                 config: {
                     systemInstruction: systemInstruction
                 }
+            });
+
+            // Now safely write headers since the stream connection is established
+            res.writeHead(200, {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Transfer-Encoding": "chunked",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive"
             });
 
             let fullReply = "";
@@ -308,12 +294,6 @@ You are Student Hub AI.
             }
 
             res.end();
-
-            // Push assistant response to session memory
-            userChats[userId].push({
-                role: "model",
-                parts: [{ text: fullReply }]
-            });
 
             await Chat.create({
                 userId,
@@ -340,13 +320,14 @@ You are Student Hub AI.
 
             if (!res.headersSent) {
                 res.status(500).json({
-                    error: "AI service error"
+                    error: err.message || "AI service error"
                 });
+            } else {
+                res.end();
             }
         }
     }
 );
-
 app.get(
     "/api/history",
     auth,
