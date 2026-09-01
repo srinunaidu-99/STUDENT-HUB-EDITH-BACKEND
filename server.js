@@ -267,8 +267,8 @@ You are Student Hub AI.
 `;
 
             // Call Gemini API stream first to catch any API/key errors before writing headers
-            const responseStream = await ai.models.generateContentStream({
-                model: "gemini-2.5-flash",
+           const responseStream = await ai.models.generateContentStream({
+                model: "gemini-3.6-flash",
                 contents: finalPrompt,
                 config: {
                     systemInstruction: systemInstruction
